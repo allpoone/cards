@@ -408,3 +408,87 @@
 .np__grid { display: grid; gap: 9px; padding: 11px 0; }
 @media (min-width: 720px) { .np__grid { grid-template-columns: 2fr 1fr 1fr; } }
 .np__actions { display: flex; flex-wrap: wrap; gap: 7px; }
+
+/* ============================================================
+   적립금(포인트) 관리
+   ============================================================ */
+.set-sep { height: 1px; margin: 12px 0; background: var(--line); }
+.rate-edit { flex: none; display: flex; align-items: center; gap: 6px; }
+.rate-edit input {
+  width: 84px;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rate-edit input:focus { border-color: var(--gold); outline: none; }
+.rate-edit input:disabled { opacity: 0.5; }
+.rate-edit__unit { font-size: 0.82rem; font-weight: 700; color: var(--text-dim); }
+
+.pf__check { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.pf__check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #3ddc97;
+  flex: none;
+}
+.pf__check > span { font-size: 0.78rem; color: var(--text-dim); }
+
+/* 회원 목록 */
+.member-search { display: flex; gap: 6px; margin-bottom: 10px; }
+.member-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.86rem;
+}
+.member-search input:focus { border-color: var(--gold); outline: none; }
+.member-list { display: grid; gap: 8px; }
+.memprow {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+.memprow__top { display: flex; align-items: center; gap: 10px; padding: 11px 13px; flex-wrap: wrap; }
+.memprow__who { display: flex; flex-direction: column; min-width: 0; flex: 1 1 160px; gap: 1px; }
+.memprow__who b { font-size: 0.86rem; font-weight: 800; }
+.memprow__who span {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memprow__bal { display: flex; align-items: baseline; gap: 5px; flex: none; }
+.memprow__bal span { font-size: 0.68rem; color: var(--text-faint); }
+.memprow__bal b { font-size: 0.94rem; font-weight: 850; color: #8ff7cc; font-variant-numeric: tabular-nums; }
+.memprow__edit { padding: 4px 13px 13px; border-top: 1px solid var(--line); }
+.memprow__fields { display: flex; flex-wrap: wrap; gap: 9px; padding: 10px 0 4px; }
+.memprow__fields .pf { flex: 1 1 130px; }
+.memprow__fields .pf--wide { flex: 2 1 220px; }
+.memprow__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+/* 주문 카드 적립금 줄 */
+.aorder__points { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 0 0; }
+.aorder__points span { font-size: 0.72rem; color: var(--text-dim); }
+.aorder__points b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.aorder__points span:last-child b { color: #8ff7cc; }
+
+@media (max-width: 560px) {
+  .rate-edit { width: 100%; justify-content: flex-end; }
+  .set-row--rate { align-items: flex-start; flex-direction: column; }
+}

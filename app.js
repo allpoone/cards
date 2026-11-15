@@ -65,6 +65,34 @@
     return "₩" + (Number(n) || 0).toLocaleString("ko-KR");
   }
 
+  /* ── 적립금 배지 ─────────────────────────────────────── */
+  function pointRate() {
+    var s = window.APOStore;
+    return s && s.pointRate ? s.pointRate() : 0;
+  }
+
+  /* DB 에 적립금 설정이 준비된 뒤에만 배지를 보입니다. */
+  function pointsReady() {
+    var s = window.APOStore;
+    return !!(s && s.pointsReady && s.pointsReady());
+  }
+
+  /* 이 상품을 1개(1구) 살 때 적립 예정 포인트. 적립 제외 상품은 0 */
+  function earnPointsOf(p) {
+    var s = window.APOStore;
+    if (!p || p.earnPoints === false || !s || !s.calcEarnPoints) return 0;
+    return s.calcEarnPoints(p.price, pointRate());
+  }
+
+  function earnBadgeMarkup(p) {
+    if (!pointsReady() || p.earnPoints === false) return "";
+    var rate = pointRate();
+    if (rate <= 0) return "";
+    var pnt = earnPointsOf(p);
+    return '<span class="earn-badge" title="입금 확인 시 적립">🎁 ' +
+      (pnt > 0 ? (pnt.toLocaleString("ko-KR") + "P 적립") : (rate + "% 적립")) + "</span>";
+  }
+
   function kakaoUrl() {
     return (SITE_CONFIG.openKakaoUrl || "").trim();
   }
@@ -312,6 +340,7 @@
       '<span class="card__price">' + won(p.price) + "</span>" +
       '<span class="card__unit">/ ' + esc(unitWord(p)) + "</span>" +
       "</div>" +
+      earnBadgeMarkup(p) +
       '<div class="card__actions">' + actions + "</div>" +
       "</div>" +
       "</article>"
@@ -383,6 +412,16 @@
     }
     rows.push(["상태", '<span class="status-badge" data-status="' + esc(p.status) +
       '" style="position:static;display:inline-flex">' + esc(st.label) + "</span>"]);
+
+    /* 적립금 */
+    if (pointsReady() && p.earnPoints === false) {
+      rows.push(["적립금", '<span class="detail__earn is-off">적립 제외 상품</span>']);
+    } else if (pointsReady() && pointRate() > 0) {
+      var pnt = earnPointsOf(p);
+      rows.push(["적립금", '<span class="detail__earn">' + esc(unitWord(p)) + "당 " +
+        (pnt > 0 ? pnt.toLocaleString("ko-KR") + "P" : "-") +
+        " <em>(" + pointRate() + "% · 입금 확인 시)" + "</em></span>"]);
+    }
 
     var lineup = "";
     if (isOripa && p.prizes && p.prizes.length) {

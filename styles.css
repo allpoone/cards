@@ -1957,3 +1957,169 @@ body.modal-open { overflow: hidden; }
 @media (max-width: 440px) {
   .detail__buy-actions { flex: 1 1 100%; }
 }
+
+/* ============================================================
+   적립금(포인트)
+   ============================================================ */
+
+/* 헤더 보유 적립금 배지 */
+.header-points {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(61, 220, 151, 0.45);
+  background: rgba(61, 220, 151, 0.12);
+  color: #8ff7cc;
+  font-size: 0.74rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.header-points:hover { background: rgba(61, 220, 151, 0.2); border-color: rgba(61, 220, 151, 0.7); }
+.header-points[hidden] { display: none; }
+@media (max-width: 520px) {
+  .header-points { padding: 4px 7px; font-size: 0.7rem; }
+}
+
+/* 상품 카드 적립 배지 */
+.earn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(61, 220, 151, 0.34);
+  background: rgba(61, 220, 151, 0.1);
+  color: #8ff7cc;
+  font-size: 0.7rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 상세 정보 적립금 줄 */
+.detail__earn { color: #8ff7cc; font-weight: 750; font-variant-numeric: tabular-nums; }
+.detail__earn em { font-style: normal; font-weight: 600; color: var(--text-faint); font-size: 0.86em; }
+.detail__earn.is-off { color: var(--text-faint); font-weight: 600; }
+
+/* 주문서 적립금 박스 */
+.co-points {
+  margin: 14px 0 4px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(61, 220, 151, 0.26);
+  background: rgba(61, 220, 151, 0.06);
+}
+.co-points__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.co-points__label { font-size: 0.78rem; color: var(--text-dim); font-weight: 700; }
+.co-points__balance { font-size: 1.05rem; font-weight: 850; color: #8ff7cc; font-variant-numeric: tabular-nums; }
+.co-points__note {
+  margin-left: auto;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.co-points__row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.co-points__row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.co-points__row input:focus { border-color: var(--gold); outline: none; }
+.co-points__row input:disabled { opacity: 0.55; }
+.co-points__unit { font-size: 0.8rem; color: var(--text-dim); font-weight: 700; }
+.co-points__hint { margin: 8px 0 0; font-size: 0.72rem; line-height: 1.6; color: var(--text-faint); }
+.co-points__sum {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-strong);
+  display: grid;
+  gap: 6px;
+}
+.co-points__sum > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.co-points__sum dt { font-size: 0.78rem; color: var(--text-dim); }
+.co-points__sum dd { margin: 0; font-size: 0.88rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.co-points__sum .is-total { margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--line); }
+.co-points__sum .is-total dt { font-weight: 800; color: var(--text); }
+.co-points__sum .is-total dd { font-size: 1.1rem; font-weight: 850; color: var(--gold-soft); }
+.co-points__sum .is-earn dd { color: #8ff7cc; }
+
+/* 주문 완료 · 내 주문 적립금 줄 */
+.done__points {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(61, 220, 151, 0.26);
+  background: rgba(61, 220, 151, 0.07);
+}
+.done__points p { margin: 0; font-size: 0.82rem; color: var(--text-dim); line-height: 1.65; }
+.done__points p + p { margin-top: 4px; }
+.done__points b { color: #8ff7cc; font-weight: 850; }
+
+.order-card__points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 8px 0 0;
+}
+.order-card__points span { font-size: 0.76rem; color: var(--text-dim); }
+.order-card__points b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.order-card__points span:last-child b { color: #8ff7cc; }
+
+/* 계정 모달: 보유 적립금 + 내역 */
+.auth__points {
+  margin: 14px 0 4px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(61, 220, 151, 0.24);
+  background: rgba(61, 220, 151, 0.055);
+}
+.auth__points-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.auth__points-head span { font-size: 0.8rem; color: var(--text-dim); font-weight: 700; }
+.auth__points-head strong { font-size: 1.3rem; font-weight: 850; color: #8ff7cc; font-variant-numeric: tabular-nums; }
+.auth__points-rate { margin: 6px 0 0; font-size: 0.72rem; line-height: 1.6; color: var(--text-faint); }
+.auth__points-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px dashed var(--line-strong);
+  display: grid;
+  gap: 8px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+.pt-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pt-row__main { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.pt-row__label { font-size: 0.72rem; font-weight: 800; color: var(--text); }
+.pt-row__label[data-kind="earn"] { color: #8ff7cc; }
+.pt-row__label[data-kind="use"] { color: var(--gold-soft); }
+.pt-row__label[data-kind="refund"] { color: #9fc7ff; }
+.pt-row__label[data-kind="admin"] { color: var(--text-dim); }
+.pt-row__memo {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 190px;
+}
+.pt-row__side { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.pt-row__amt { font-size: 0.82rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+.pt-row__amt.is-plus { color: #8ff7cc; }
+.pt-row__amt.is-minus { color: var(--gold-soft); }
+.pt-row__date { font-size: 0.66rem; color: var(--text-faint); white-space: nowrap; }
+.pt-row--empty { justify-content: center; font-size: 0.76rem; color: var(--text-faint); padding: 8px 0; }

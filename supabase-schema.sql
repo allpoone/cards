@@ -19,18 +19,23 @@
 --      에 넣고 배포하면 사이트가 자동으로 DB 모드로 바뀝니다.
 --
 -- ▶ 구조
---   products        상품 이름·가격·재고·상태 (카드 디자인은 cards.js 가 담당)
+--   products        상품 이름·가격·재고·상태·적립금 지급 여부 (카드 디자인은 cards.js 가 담당)
 --   orders          주문 (상태: pending_payment 입금대기 / paid 입금완료 /
 --                          shipped 발송완료 / cancelled 취소)
 --                   user_id = 주문한 회원(auth.users). 비회원 주문이면 null
+--                   used_points / earned_points / points_awarded = 적립금 사용·적립 기록
 --   order_items     주문 상품 줄
+--   point_wallets   회원별 보유 적립금
+--   point_transactions  적립·사용·환불·사장님 조정 내역
 --   deposit_events  은행 알림 자동 입금확인 처리 로그 (관리자만 조회)
---   shop_public_settings  손님 화면 공개 설정 (비로그인 주문 허용 여부)
+--   shop_public_settings  손님 화면 공개 설정 (비로그인 주문 허용 여부 · 기본 적립률)
 --   private.shop_settings  자동 입금확인 시크릿 (anon 접근 차단)
 --
 -- ▶ 이미 1차 스키마를 실행한 프로젝트
 --   파일 전체를 다시 실행해도 안전합니다(있는 것은 그대로).
---   SQL Editor 에 붙여넣기만 하면 되는 짧은 증분 파일은 supabase-upgrade-v2.sql 입니다.
+--   SQL Editor 에 붙여넣기만 하면 되는 짧은 증분 파일:
+--     · supabase-upgrade-v2.sql (상품 관리·회원 주문·자동취소·사진)
+--     · supabase-upgrade-v3.sql (적립금/포인트)  ← 최신
 --
 -- ▶ 보안 요약
 --   · 상품은 누구나 읽기만 가능하고, 재고 수정은 서버 함수(RPC)로만 됩니다.
@@ -121,6 +126,7 @@ create table if not exists public.products (
   image_url   text,
   edition     text check (edition in ('KR', 'JP', 'EN')),
   sort_order  integer not null default 0,
+  earn_points boolean not null default true,
   updated_at  timestamptz not null default now()
 );
 
@@ -128,6 +134,8 @@ create table if not exists public.products (
 alter table public.products add column if not exists subtitle  text;
 alter table public.products add column if not exists image_url text;
 alter table public.products add column if not exists edition   text;
+-- 상품별 적립금 지급 여부 (기본 ON)
+alter table public.products add column if not exists earn_points boolean not null default true;
 
 -- 분류·종목 값 확장 (기존 제약을 지우고 → 값 옮기고 → 새 제약을 답니다)
 alter table public.products drop constraint if exists products_type_check;
@@ -144,12 +152,23 @@ alter table public.products
 
 create index if not exists products_status_idx on public.products (status);
 
--- 손님 화면에 공개되는 설정 (지금은 비로그인 주문 허용 여부 하나)
+-- 손님 화면에 공개되는 설정 (비로그인 주문 허용 여부 · 기본 적립률)
 create table if not exists public.shop_public_settings (
   id                     int primary key default 1 check (id = 1),
   require_login_to_order boolean not null default false,
+  point_rate             numeric(5,2) not null default 2,
   updated_at             timestamptz not null default now()
 );
+
+-- 기본 적립률(%) — 0 ~ 50 사이, 기본 2%
+alter table public.shop_public_settings
+  add column if not exists point_rate numeric(5,2) not null default 2;
+
+alter table public.shop_public_settings
+  drop constraint if exists shop_public_settings_point_rate_check;
+alter table public.shop_public_settings
+  add constraint shop_public_settings_point_rate_check
+  check (point_rate >= 0 and point_rate <= 50);
 
 insert into public.shop_public_settings (id)
 values (1)
@@ -169,6 +188,9 @@ create table if not exists public.orders (
   memo            text,
   user_id         uuid references auth.users (id) on delete set null,
   total_amount    integer not null default 0 check (total_amount >= 0),
+  used_points     integer not null default 0,
+  earned_points   integer not null default 0,
+  points_awarded  boolean not null default false,
   paid_at         timestamptz,
   shipped_at      timestamptz,
   cancelled_at    timestamptz,
@@ -181,6 +203,11 @@ create index if not exists orders_created_idx on public.orders (created_at desc)
 -- 1차 스키마로 이미 만든 orders 테이블에도 회원 컬럼을 붙입니다.
 alter table public.orders
   add column if not exists user_id uuid references auth.users (id) on delete set null;
+
+-- 적립금: 사용한 포인트 / 적립 예정(또는 완료) 포인트 / 실제 지급 여부
+alter table public.orders add column if not exists used_points    integer not null default 0;
+alter table public.orders add column if not exists earned_points  integer not null default 0;
+alter table public.orders add column if not exists points_awarded boolean not null default false;
 
 create index if not exists orders_lookup_idx on public.orders (customer_name, phone);
 create index if not exists orders_user_idx on public.orders (user_id, created_at desc);
@@ -211,6 +238,28 @@ create table if not exists public.deposit_events (
 );
 
 create index if not exists deposit_events_created_idx on public.deposit_events (created_at desc);
+
+-- 적립금 지갑 · 적립/사용 내역 — 손님 브라우저에서는 직접 접근 불가
+create table if not exists public.point_wallets (
+  user_id    uuid primary key references auth.users (id) on delete cascade,
+  balance    integer not null default 0 check (balance >= 0),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.point_transactions (
+  id         bigserial primary key,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  amount     integer not null,
+  kind       text not null check (kind in ('earn', 'use', 'refund', 'admin')),
+  order_no   text,
+  memo       text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists point_transactions_user_idx
+  on public.point_transactions (user_id, created_at desc);
+create index if not exists point_transactions_order_idx
+  on public.point_transactions (order_no);
 
 -- ============================================================
 -- 3. 행 수준 보안 (RLS)
@@ -262,6 +311,13 @@ create policy deposit_events_admin on public.deposit_events
   using (private.is_admin())
   with check (private.is_admin());
 
+-- 적립금 표: 정책을 두지 않습니다(전부 거부). 조회·변경은 아래 RPC 함수로만.
+alter table public.point_wallets      enable row level security;
+alter table public.point_transactions enable row level security;
+revoke all on public.point_wallets      from anon, authenticated;
+revoke all on public.point_transactions from anon, authenticated;
+revoke all on sequence public.point_transactions_id_seq from anon, authenticated;
+
 -- ============================================================
 -- 3-1. 주문 취소 · 재고 복구 공통 도우미
 -- ------------------------------------------------------------
@@ -300,6 +356,206 @@ $$;
 revoke all on function private.restore_order_stock(uuid) from public;
 
 -- ============================================================
+-- 3-2. 적립금 계산 · 지급 · 회수 · 환불 도우미
+-- ------------------------------------------------------------
+-- 적립금 계산: 1의 자리 반올림 → 10의 자리 반올림(100원 단위)
+--   845 → 850 → 900 / 844 → 840 → 800 / 998 → 1,000 → 1,000
+-- ============================================================
+create or replace function private.calc_earn_points(
+  p_eligible_amount integer,
+  p_rate            numeric
+)
+returns integer
+language plpgsql
+immutable
+as $$
+declare
+  raw_val numeric;
+  step1   numeric;
+  step2   numeric;
+begin
+  if p_eligible_amount is null or p_eligible_amount <= 0 then
+    return 0;
+  end if;
+
+  raw_val := p_eligible_amount::numeric * (coalesce(p_rate, 0)::numeric / 100.0);
+
+  step1 := round(raw_val / 10.0) * 10;    -- 1의 자리 반올림
+  step2 := round(step1 / 100.0) * 100;    -- 10의 자리 반올림 → 100원 단위
+
+  return greatest(0, step2)::int;
+end;
+$$;
+
+revoke all on function private.calc_earn_points(integer, numeric) from public;
+grant execute on function private.calc_earn_points(integer, numeric) to authenticated;
+
+-- 입금 확인 시 적립 (같은 주문에 두 번 지급하지 않음)
+create or replace function private.award_order_points(p_order_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = private, public, pg_temp
+as $$
+declare
+  v_order public.orders;
+  v_earn  integer := 0;
+begin
+  select * into v_order
+    from public.orders
+   where id = p_order_id
+     for update;
+
+  if not found then
+    return 0;
+  end if;
+
+  if v_order.points_awarded then
+    return 0;
+  end if;
+
+  v_earn := greatest(0, coalesce(v_order.earned_points, 0));
+
+  if v_order.user_id is null or v_earn = 0 then
+    update public.orders
+       set points_awarded = true,
+           updated_at = now()
+     where id = p_order_id
+       and points_awarded = false;
+    return 0;
+  end if;
+
+  insert into public.point_wallets (user_id, balance, updated_at)
+  values (v_order.user_id, v_earn, now())
+  on conflict (user_id) do update
+     set balance    = public.point_wallets.balance + excluded.balance,
+         updated_at = now();
+
+  insert into public.point_transactions (user_id, amount, kind, order_no, memo)
+  values (v_order.user_id, v_earn, 'earn', v_order.order_no, '입금 확인 적립');
+
+  update public.orders
+     set points_awarded = true,
+         updated_at = now()
+   where id = p_order_id;
+
+  return v_earn;
+end;
+$$;
+
+revoke all on function private.award_order_points(uuid) from public;
+
+-- 이미 적립된 주문을 취소할 때 회수 (잔액이 모자라면 0까지만 차감)
+create or replace function private.revoke_order_points(p_order_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = private, public, pg_temp
+as $$
+declare
+  v_order public.orders;
+  v_earn  integer := 0;
+  v_take  integer := 0;
+begin
+  select * into v_order
+    from public.orders
+   where id = p_order_id
+     for update;
+
+  if not found then
+    return 0;
+  end if;
+
+  if v_order.user_id is null or v_order.points_awarded = false then
+    return 0;
+  end if;
+
+  v_earn := greatest(0, coalesce(v_order.earned_points, 0));
+
+  update public.orders
+     set points_awarded = false,
+         updated_at = now()
+   where id = p_order_id;
+
+  if v_earn = 0 then
+    return 0;
+  end if;
+
+  select least(coalesce(balance, 0), v_earn)
+    into v_take
+    from public.point_wallets
+   where user_id = v_order.user_id
+     for update;
+
+  if v_take is null or v_take <= 0 then
+    return 0;
+  end if;
+
+  update public.point_wallets
+     set balance    = greatest(0, balance - v_take),
+         updated_at = now()
+   where user_id = v_order.user_id;
+
+  insert into public.point_transactions (user_id, amount, kind, order_no, memo)
+  values (v_order.user_id, -v_take, 'admin', v_order.order_no, '주문 취소로 적립 회수');
+
+  return v_take;
+end;
+$$;
+
+revoke all on function private.revoke_order_points(uuid) from public;
+
+-- 주문 취소 시 사용한 적립금 환불 (같은 주문에서 한 번만)
+create or replace function private.refund_order_points(p_order_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = private, public, pg_temp
+as $$
+declare
+  v_order  public.orders;
+  v_refund integer := 0;
+begin
+  select * into v_order
+    from public.orders
+   where id = p_order_id
+     for update;
+
+  if not found then
+    return 0;
+  end if;
+
+  if v_order.user_id is null or coalesce(v_order.used_points, 0) <= 0 then
+    return 0;
+  end if;
+
+  if exists (
+    select 1
+      from public.point_transactions t
+     where t.order_no = v_order.order_no
+       and t.kind = 'refund'
+  ) then
+    return 0;
+  end if;
+
+  v_refund := v_order.used_points;
+
+  insert into public.point_wallets (user_id, balance, updated_at)
+  values (v_order.user_id, v_refund, now())
+  on conflict (user_id) do update
+     set balance    = public.point_wallets.balance + excluded.balance,
+         updated_at = now();
+
+  insert into public.point_transactions (user_id, amount, kind, order_no, memo)
+  values (v_order.user_id, v_refund, 'refund', v_order.order_no, '주문 취소 적립금 환불');
+
+  return v_refund;
+end;
+$$;
+
+revoke all on function private.refund_order_points(uuid) from public;
+
+-- ============================================================
 -- 4. 주문 JSON 헬퍼
 -- ============================================================
 create or replace function public.order_json(p_id uuid)
@@ -318,6 +574,9 @@ as $$
     'shipped_at',     o.shipped_at,
     'cancelled_at',   o.cancelled_at,
     'total_amount',   o.total_amount,
+    'used_points',    o.used_points,
+    'earned_points',  o.earned_points,
+    'points_awarded', o.points_awarded,
     'customer_name',  o.customer_name,
     'depositor_name', o.depositor_name,
     'phone',          o.phone,
@@ -352,8 +611,9 @@ revoke all on function public.order_json(uuid) from public;
 -- 5. 주문 넣기 — 원자적 재고 차감
 -- ============================================================
 create or replace function public.place_order(
-  p_customer jsonb,
-  p_items    jsonb
+  p_customer   jsonb,
+  p_items      jsonb,
+  p_use_points integer default 0
 )
 returns jsonb
 language plpgsql
@@ -368,6 +628,12 @@ declare
   v_order_no  text;
   v_suffix    text;
   v_total     int := 0;
+  v_subtotal  int := 0;
+  v_eligible  int := 0;
+  v_use       int := greatest(0, coalesce(p_use_points, 0));
+  v_balance   int := 0;
+  v_rate      numeric(5,2) := 2;
+  v_earn      int := 0;
   v_created   timestamptz := now();
   v_name      text := nullif(btrim(coalesce(p_customer ->> 'name', '')), '');
   v_depositor text := nullif(btrim(coalesce(p_customer ->> 'depositor', '')), '');
@@ -377,12 +643,12 @@ declare
   v_uid       uuid := auth.uid();
   v_require   boolean := false;
 begin
-  /* 10분 지난 미입금 주문을 먼저 정리 (재고 복구) */
+  /* 10분 지난 미입금 주문을 먼저 정리 (재고·적립금 복구) */
   perform public.expire_unpaid_orders();
 
   /* --- 회원 전용 설정 확인 --------------------------------- */
-  select require_login_to_order
-    into v_require
+  select require_login_to_order, coalesce(point_rate, 2)
+    into v_require, v_rate
     from public.shop_public_settings
    where id = 1;
 
@@ -402,6 +668,12 @@ begin
      or jsonb_typeof(p_items) <> 'array'
      or jsonb_array_length(p_items) = 0 then
     raise exception '주문할 상품이 없습니다.' using errcode = '22023';
+  end if;
+
+  /* --- 적립금은 로그인 회원만 사용할 수 있습니다 ------------ */
+  if v_use > 0 and v_uid is null then
+    raise exception '적립금은 로그인한 회원만 사용할 수 있습니다.'
+      using errcode = '42501';
   end if;
 
   /* --- 재고 차감 (같은 상품은 합산, id 순서로 잠가 교착 방지) --- */
@@ -496,21 +768,67 @@ begin
   ) a
   join public.products p on p.id = a.product_id;
 
-  select coalesce(sum(line_total), 0)
-    into v_total
-    from public.order_items
-   where order_id = v_order_id;
+  /* 상품 합계 / 적립 대상(적립 ON 상품) 합계 */
+  select coalesce(sum(i.line_total), 0),
+         coalesce(sum(case when p.earn_points then i.line_total else 0 end), 0)
+    into v_subtotal, v_eligible
+    from public.order_items i
+    join public.products p on p.id = i.product_id
+   where i.order_id = v_order_id;
+
+  /* --- 적립금 사용 검증 + 차감 ---------------------------- */
+  if v_use > 0 then
+    if v_use > v_subtotal then
+      raise exception '적립금은 주문 금액(%)보다 많이 사용할 수 없습니다.', v_subtotal
+        using errcode = '22023';
+    end if;
+
+    select balance
+      into v_balance
+      from public.point_wallets
+     where user_id = v_uid
+       for update;
+
+    if v_balance is null or v_balance < v_use then
+      raise exception '보유 적립금이 부족합니다. (보유 %P)', coalesce(v_balance, 0)
+        using errcode = '22023';
+    end if;
+
+    /* 실결제 비율만큼 적립 대상 금액에서 빼고 적립금을 계산합니다. */
+    if v_subtotal > 0 then
+      v_eligible := greatest(0,
+        round(v_eligible::numeric * (v_subtotal - v_use)::numeric / v_subtotal::numeric)::int);
+    else
+      v_eligible := 0;
+    end if;
+  end if;
+
+  v_earn := private.calc_earn_points(v_eligible, v_rate);
+  v_total := v_subtotal - v_use;
 
   update public.orders
-     set total_amount = v_total
+     set total_amount  = v_total,
+         used_points   = v_use,
+         earned_points = v_earn,
+         updated_at    = now()
    where id = v_order_id;
+
+  if v_use > 0 then
+    update public.point_wallets
+       set balance    = balance - v_use,
+           updated_at = now()
+     where user_id = v_uid;
+
+    insert into public.point_transactions (user_id, amount, kind, order_no, memo)
+    values (v_uid, -v_use, 'use', v_order_no, '주문 적립금 사용');
+  end if;
 
   return public.order_json(v_order_id);
 end;
 $$;
 
-comment on function public.place_order(jsonb, jsonb) is
-  '장바구니 주문 생성. 재고를 원자적으로 차감하고 0이면 자동 품절 처리. 로그인 회원이면 user_id 저장.';
+comment on function public.place_order(jsonb, jsonb, integer) is
+  '장바구니 주문 생성. 재고를 원자적으로 차감하고 0이면 자동 품절 처리. 적립금 사용·적립 예정 계산. 로그인 회원이면 user_id 저장.';
 
 -- ============================================================
 -- 6. 주문 상태 변경 — 취소 시 재고 복구
@@ -526,8 +844,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_order   public.orders;
-  v_item    record;
+  v_order public.orders;
 begin
   perform private.assert_admin(p_pin);
 
@@ -572,6 +889,17 @@ begin
                         end,
          updated_at = now()
    where id = v_order.id;
+
+  /* 입금확인 → 적립금 지급 (두 번 지급되지 않게 서버가 확인) */
+  if p_status in ('paid', 'shipped') then
+    perform private.award_order_points(v_order.id);
+  end if;
+
+  /* 취소 → 사용 적립금 환불 + 이미 지급한 적립금 회수 */
+  if p_status = 'cancelled' and v_order.status <> 'cancelled' then
+    perform private.refund_order_points(v_order.id);
+    perform private.revoke_order_points(v_order.id);
+  end if;
 
   return public.order_json(v_order.id);
 end;
@@ -691,6 +1019,7 @@ begin
      for update skip locked
   loop
     perform private.restore_order_stock(v_id);
+    perform private.refund_order_points(v_id);
 
     update public.orders
        set status = 'cancelled',
@@ -765,6 +1094,7 @@ begin
   end if;
 
   perform private.restore_order_stock(v_order.id);
+  perform private.refund_order_points(v_order.id);
 
   update public.orders
      set status = 'cancelled',
@@ -883,10 +1213,10 @@ begin
       using errcode = '22023';
   end if;
 
-  /* 분류·종목·설명·사진은 그대로 두고 이름·가격·재고만 바꿉니다. */
+  /* 분류·종목·설명·사진·적립 여부는 그대로 두고 이름·가격·재고만 바꿉니다. */
   return public.admin_upsert_product(
     p_product_id, p_name, v_row.type, v_row.game, p_price, p_stock,
-    v_row.edition, v_row.subtitle, v_row.image_url, p_pin
+    v_row.edition, v_row.subtitle, v_row.image_url, v_row.earn_points, p_pin
   );
 end;
 $$;
@@ -897,18 +1227,20 @@ comment on function public.admin_update_product(text, text, integer, integer, te
 -- ── 새 상품 추가 / 상품 정보 전체 수정 (upsert) ────────────
 -- p_id 가 없으면 서버가 새 id 를 만듭니다. (db-xxxxxxxxxx)
 drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text);
+drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text);
 
 create or replace function public.admin_upsert_product(
-  p_id        text,
-  p_name      text,
-  p_type      text,
-  p_game      text,
-  p_price     integer,
-  p_stock     integer,
-  p_edition   text default null,
-  p_subtitle  text default null,
-  p_image_url text default null,
-  p_pin       text default null
+  p_id         text,
+  p_name       text,
+  p_type       text,
+  p_game       text,
+  p_price      integer,
+  p_stock      integer,
+  p_edition    text default null,
+  p_subtitle   text default null,
+  p_image_url  text default null,
+  p_earn_points boolean default true,
+  p_pin        text default null
 )
 returns jsonb
 language plpgsql
@@ -916,11 +1248,12 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_id   text := nullif(btrim(coalesce(p_id, '')), '');
+  v_id      text := nullif(btrim(coalesce(p_id, '')), '');
   v_row     public.products;
   v_sort    integer;
   v_new     boolean := false;
   v_edition text;
+  v_earn    boolean := coalesce(p_earn_points, true);
 begin
   perform private.assert_admin(p_pin);
 
@@ -970,13 +1303,15 @@ begin
     select coalesce(max(sort_order), 0) + 10 into v_sort from public.products;
 
     insert into public.products (
-      id, name, type, game, edition, price, stock, status, sort_order, subtitle, image_url, updated_at
+      id, name, type, game, edition, price, stock, status, sort_order,
+      subtitle, image_url, earn_points, updated_at
     ) values (
       v_id, btrim(p_name), p_type, p_game, v_edition, p_price, p_stock,
       case when p_stock <= 0 then 'sold' else 'available' end,
       v_sort,
       nullif(btrim(coalesce(p_subtitle, '')), ''),
       nullif(btrim(coalesce(p_image_url, '')), ''),
+      v_earn,
       now()
     )
     returning * into v_row;
@@ -997,6 +1332,7 @@ begin
                        end,
            subtitle  = nullif(btrim(coalesce(p_subtitle, '')), ''),
            image_url = nullif(btrim(coalesce(p_image_url, '')), ''),
+           earn_points = v_earn,
            updated_at = now()
      where id = v_id
     returning * into v_row;
@@ -1013,13 +1349,14 @@ begin
     'edition',  v_row.edition,
     'subtitle', v_row.subtitle,
     'image_url', v_row.image_url,
+    'earn_points', v_row.earn_points,
     'created',  v_new
   );
 end;
 $$;
 
-comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text) is
-  '관리자용 상품 추가/수정. id 없으면 새로 만들고, 있으면 이름·분류·종목·가격·재고·설명·사진을 통째로 저장.';
+comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text) is
+  '관리자용 상품 추가/수정. 적립금 지급 여부(p_earn_points)까지 함께 저장.';
 
 -- ── 상품 삭제 (주문 이력이 있으면 거절) ──────────────
 create or replace function public.admin_delete_product(
@@ -1095,6 +1432,227 @@ $$;
 comment on function public.admin_set_require_login(boolean, text) is
   '사장님 설정: 비로그인(게스트) 주문 허용 / 회원 로그인 필수 전환.';
 
+-- ── 사장님 설정: 기본 적립률(%) ───────────────────────────
+create or replace function public.admin_set_point_rate(
+  p_rate numeric,
+  p_pin  text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rate numeric(5,2);
+begin
+  perform private.assert_admin(p_pin);
+
+  if p_rate is null or p_rate < 0 or p_rate > 50 then
+    raise exception '적립률은 0 ~ 50 사이로 입력해 주세요.' using errcode = '22023';
+  end if;
+
+  v_rate := round(p_rate::numeric, 2);
+
+  insert into public.shop_public_settings (id, point_rate, updated_at)
+  values (1, v_rate, now())
+  on conflict (id) do update
+     set point_rate = excluded.point_rate,
+         updated_at = now();
+
+  return jsonb_build_object('point_rate', v_rate, 'updated_at', now());
+end;
+$$;
+
+comment on function public.admin_set_point_rate(numeric, text) is
+  '사장님 설정: 기본 적립률(%) 저장. 0~50 사이, 소수 둘째 자리까지.';
+
+-- ── 손님: 내 적립금 + 적립/사용 내역 ─────────────────────
+create or replace function public.my_points(p_limit integer default 30)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_balance int := 0;
+  v_rate    numeric := 2;
+  v_list    jsonb;
+begin
+  if v_uid is null then
+    raise exception '로그인 후 이용해 주세요.' using errcode = '28000';
+  end if;
+
+  select coalesce(balance, 0) into v_balance
+    from public.point_wallets
+   where user_id = v_uid;
+
+  select coalesce(point_rate, 2) into v_rate
+    from public.shop_public_settings
+   where id = 1;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id',         t.id,
+           'amount',     t.amount,
+           'kind',       t.kind,
+           'order_no',   t.order_no,
+           'memo',       t.memo,
+           'created_at', t.created_at
+         ) order by t.created_at desc, t.id desc), '[]'::jsonb)
+    into v_list
+    from (
+      select *
+        from public.point_transactions
+       where user_id = v_uid
+       order by created_at desc, id desc
+       limit greatest(1, least(coalesce(p_limit, 30), 100))
+    ) t;
+
+  return jsonb_build_object(
+    'balance',      coalesce(v_balance, 0),
+    'rate',         coalesce(v_rate, 2),
+    'transactions', coalesce(v_list, '[]'::jsonb)
+  );
+end;
+$$;
+
+comment on function public.my_points(integer) is
+  '로그인 회원 본인의 적립금 잔액 + 최근 적립/사용 내역.';
+
+-- ── 사장님: 회원 적립금 조회 · 지급/차감 ───────────────
+create or replace function public.admin_list_member_points(
+  p_query text default null,
+  p_limit integer default 100,
+  p_pin   text default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_q      text := nullif(btrim(coalesce(p_query, '')), '');
+  v_digits text := regexp_replace(coalesce(p_query, ''), '\D', '', 'g');
+  v_list   jsonb;
+begin
+  perform private.assert_admin(p_pin);
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'user_id',   x.id,
+           'username',  x.username,
+           'name',      x.name,
+           'phone',     x.phone,
+           'balance',   x.balance,
+           'joined_at', x.created_at
+         ) order by x.created_at desc), '[]'::jsonb)
+    into v_list
+    from (
+      select u.id,
+             coalesce(
+               nullif(u.raw_user_meta_data ->> 'username', ''),
+               split_part(coalesce(u.email, ''), '@', 1)
+             ) as username,
+             u.raw_user_meta_data ->> 'name'  as name,
+             u.raw_user_meta_data ->> 'phone' as phone,
+             coalesce(w.balance, 0) as balance,
+             u.created_at
+        from auth.users u
+        left join public.point_wallets w on w.user_id = u.id
+       where v_q is null
+          or coalesce(u.email, '') ilike '%' || v_q || '%'
+          or coalesce(u.raw_user_meta_data ->> 'username', '') ilike '%' || v_q || '%'
+          or coalesce(u.raw_user_meta_data ->> 'name', '') ilike '%' || v_q || '%'
+          or (length(v_digits) >= 3
+              and regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g')
+                  like '%' || v_digits || '%')
+          or regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g')
+             = v_digits
+       order by u.created_at desc
+       limit greatest(1, least(coalesce(p_limit, 100), 500))
+    ) x;
+
+  return coalesce(v_list, '[]'::jsonb);
+end;
+$$;
+
+comment on function public.admin_list_member_points(text, integer, text) is
+  '관리자용 회원 목록 + 보유 적립금. 아이디·이름·휴대폰 번호로 검색.';
+
+create or replace function public.admin_adjust_points(
+  p_user_id uuid,
+  p_amount  integer,
+  p_memo    text default null,
+  p_pin     text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_balance int := 0;
+  v_new     int := 0;
+  v_memo    text;
+begin
+  perform private.assert_admin(p_pin);
+
+  if p_user_id is null then
+    raise exception '적립금을 지급할 회원을 골라 주세요.' using errcode = '22023';
+  end if;
+  if p_amount is null or p_amount = 0 then
+    raise exception '지급(+) 또는 차감(-)할 적립금을 입력해 주세요.' using errcode = '22023';
+  end if;
+  if p_amount > 100000000 or p_amount < -100000000 then
+    raise exception '한 번에 1억 P 이하로 입력해 주세요.' using errcode = '22023';
+  end if;
+
+  if not exists (select 1 from auth.users u where u.id = p_user_id) then
+    raise exception '회원을 찾을 수 없습니다.' using errcode = '22023';
+  end if;
+
+  insert into public.point_wallets (user_id, balance, updated_at)
+  values (p_user_id, 0, now())
+  on conflict (user_id) do nothing;
+
+  select balance into v_balance
+    from public.point_wallets
+   where user_id = p_user_id
+     for update;
+
+  v_balance := coalesce(v_balance, 0);
+
+  if p_amount < 0 and v_balance + p_amount < 0 then
+    raise exception '보유 적립금(%P)보다 많이 차감할 수 없습니다.', v_balance
+      using errcode = '22023';
+  end if;
+
+  update public.point_wallets
+     set balance    = balance + p_amount,
+         updated_at = now()
+   where user_id = p_user_id
+  returning balance into v_new;
+
+  v_memo := nullif(btrim(coalesce(p_memo, '')), '');
+  if v_memo is null then
+    v_memo := case when p_amount > 0 then '사장님 지급' else '사장님 차감' end;
+  end if;
+
+  insert into public.point_transactions (user_id, amount, kind, memo)
+  values (p_user_id, p_amount, 'admin', v_memo);
+
+  return jsonb_build_object(
+    'user_id', p_user_id,
+    'amount',  p_amount,
+    'balance', v_new
+  );
+end;
+$$;
+
+comment on function public.admin_adjust_points(uuid, integer, text, text) is
+  '관리자용 적립금 지급(+)/차감(-). 보유 적립금보다 많이 차감하지는 않습니다.';
+
 -- ============================================================
 -- 9. 자동 입금 확인 (은행 알림 → 입금완료)
 -- ------------------------------------------------------------
@@ -1137,6 +1695,7 @@ declare
   v_count      int;
   v_candidates jsonb;
   v_order      public.orders;
+  v_earned     int := 0;
 begin
   /* --- 1) 시크릿 검증 ------------------------------------- */
   select deposit_secret into v_secret from private.shop_settings where id = 1;
@@ -1249,6 +1808,9 @@ begin
          updated_at = now()
    where id = v_order.id;
 
+  /* 입금확인 → 적립금 지급 */
+  v_earned := private.award_order_points(v_order.id);
+
   insert into public.deposit_events (raw_text, amount, status, reason, order_no)
   values (v_text, v_amount, 'matched', 'auto', v_order.order_no);
 
@@ -1259,6 +1821,7 @@ begin
     'total_amount', v_order.total_amount,
     'customer_name', v_order.customer_name,
     'depositor_name', v_order.depositor_name,
+    'earned_points', v_earned,
     'paid_at', now()
   );
 end;
@@ -1328,15 +1891,19 @@ $$;
 -- ============================================================
 -- 10. 실행 권한
 -- ============================================================
-grant execute on function public.place_order(jsonb, jsonb)          to anon, authenticated;
+grant execute on function public.place_order(jsonb, jsonb, integer)  to anon, authenticated;
 grant execute on function public.lookup_orders(text, text, text)    to anon, authenticated;
+grant execute on function public.order_json(uuid)                    to anon, authenticated;
 grant execute on function public.update_order_status(text, text, text) to anon, authenticated;
 grant execute on function public.admin_list_orders(text, text)      to anon, authenticated;
 grant execute on function public.admin_set_stock(text, text, integer) to anon, authenticated;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
-grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text) to anon, authenticated;
+grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text) to anon, authenticated;
 grant execute on function public.admin_delete_product(text, text)   to anon, authenticated;
 grant execute on function public.admin_set_require_login(boolean, text) to anon, authenticated;
+grant execute on function public.admin_set_point_rate(numeric, text) to anon, authenticated;
+grant execute on function public.admin_list_member_points(text, integer, text) to anon, authenticated;
+grant execute on function public.admin_adjust_points(uuid, integer, text, text) to anon, authenticated;
 grant execute on function public.auto_confirm_deposit(text, text)    to anon, authenticated;
 grant execute on function public.admin_deposit_events(text, integer) to anon, authenticated;
 grant execute on function public.check_phone_available(text)         to anon, authenticated;
@@ -1344,6 +1911,10 @@ grant execute on function public.check_phone_available(text)         to anon, au
 -- 회원 본인 주문은 로그인한 사용자만 (anon 에는 주지 않습니다)
 revoke all on function public.my_orders() from public;
 grant execute on function public.my_orders() to authenticated;
+
+-- 회원 본인 적립금도 로그인한 사용자만
+revoke all on function public.my_points(integer) from public;
+grant execute on function public.my_points(integer) to authenticated;
 
 grant execute on function public.expire_unpaid_orders()           to anon, authenticated;
 grant execute on function public.cancel_my_order(text, text, text) to anon, authenticated;
@@ -1394,11 +1965,13 @@ on conflict (id) do nothing;
 -- ============================================================
 -- 확인용 쿼리 (필요할 때만 실행)
 -- ------------------------------------------------------------
--- select id, name, price, stock, status, subtitle, image_url from public.products order by sort_order;
+-- select id, name, price, stock, status, subtitle, image_url, earn_points from public.products order by sort_order;
 -- select * from public.shop_public_settings;
--- select order_no, status, total_amount, customer_name, (user_id is not null) as 회원, created_at from public.orders order by created_at desc limit 20;
+-- select order_no, status, total_amount, used_points, earned_points, points_awarded, customer_name, (user_id is not null) as 회원, created_at from public.orders order by created_at desc limit 20;
 -- select * from private.shop_settings;
 -- select status, amount, order_no, raw_text, created_at from public.deposit_events order by created_at desc limit 20;
+-- select p.username, w.balance from public.point_wallets w join auth.users p on p.id = w.user_id order by w.balance desc;
+-- select * from public.point_transactions order by created_at desc limit 30;
 -- ============================================================
 
 -- ============================================================
@@ -1422,10 +1995,13 @@ update auth.users
  where email = 'acac020241@naver.com';
 
 -- ============================================================
--- 13. 설치 확인 — 자동 입금 확인 시크릿 (마지막에 실행)
+-- 13. 설치 확인 — 자동 입금 확인 시크릿 + 적립금 설정 (마지막에 실행)
 -- ------------------------------------------------------------
 -- 이 파일 전체를 [Run] 하면 아래 결과창에 deposit_secret 값이 바로 나옵니다.
 -- 그 값을 MacroDroid 의 p_secret 자리에 넣으면 됩니다.
 -- (값을 바꾸고 싶으면 update 로 바꾼 뒤 이 select 를 다시 실행하세요.)
 -- ============================================================
-select deposit_secret from private.shop_settings;
+select
+  (select deposit_secret from private.shop_settings)                as "입금확인_시크릿",
+  (select point_rate from public.shop_public_settings where id=1)   as "기본적립률",
+  (select count(*) from public.point_wallets)                       as "적립금지갑수";

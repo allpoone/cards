@@ -51,9 +51,11 @@
   var dbRowById = {};
   var extraProducts = [];  // 테스트 모드에서 추가한 상품
   var extraById = {};
-  var dbColumns = "none";  // "full" | "v1" | "min" | "none"
-  var settings = { requireLogin: false, ready: false };  // 사장님 공개 설정
+  var dbColumns = "none";  // "points" | "full" | "v1" | "min" | "none"
+  var settings = { requireLogin: false, pointRate: 2, ready: false, pointsReady: false };  // 사장님 공개 설정
   var readyPromise = null;
+  var pointsCache = null;   // { balance, rate, transactions, at }
+  var pointsPromise = null;
 
   var IMAGE_BUCKET = "product-images";
 
@@ -210,6 +212,7 @@
       if (row.subtitle) { out.series = row.subtitle; out.subtitle = row.subtitle; }
       if (row.image_url) out.image = row.image_url;
       out.imageUrl = row.image_url || "";
+      out.earnPoints = row.earn_points !== false;
     }
 
     if (!out.type) out.type = "box";
@@ -253,6 +256,7 @@
     out.stock = stock;
     out.status = status;
     out.soldOut = stock <= 0;
+    out.earnPoints = row ? row.earn_points !== false : (d.earnPoints !== false);
     /* 기존 화면 함수들이 쓰는 잔여 수량 필드도 같이 맞춰 줍니다. */
     if (out.type === "oripa") out.remainingUnits = stock;
     else out.remaining = stock;
@@ -594,6 +598,9 @@
       client.auth.onAuthStateChange(function (event, session) {
         if (event === "SIGNED_OUT") rememberSession(null);
         else if (session) rememberSession(session);
+        /* 사용자가 바뀌었을 수 있으니 적립금 캐시는 버립니다. */
+        pointsCache = null;
+        pointsPromise = null;
         emit("auth");
       });
     } catch (e) {
@@ -633,9 +640,10 @@
   }
 
   var PRODUCT_FIELDS = {
-    full: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order",
-    v1:   "id, name, type, game, price, stock, status",
-    min:  "id, name, price, stock, status",
+    points: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points",
+    full:   "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order",
+    v1:     "id, name, type, game, price, stock, status",
+    min:    "id, name, price, stock, status",
   };
 
   function normalizeRow(r) {
@@ -652,6 +660,8 @@
       subtitle: r.subtitle || "",
       image_url: r.image_url || "",
       sort_order: Number(r.sort_order) || 0,
+      /* 적립금 컬럼이 아직 없는 DB에서는 모든 상품 적립 대상으로 봅니다. */
+      earn_points: r.earn_points === false ? false : true,
     };
   }
 
@@ -675,7 +685,7 @@
   /* 새 열(subtitle·image_url)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
   function fetchDbProducts() {
     return connectDb().then(function (c) {
-      var order = ["full", "v1", "min"];
+      var order = ["points", "full", "v1", "min"];
       function attempt(i) {
         return c.from("products").select(PRODUCT_FIELDS[order[i]]).then(function (res) {
           if (res.error) {
@@ -691,27 +701,41 @@
     });
   }
 
-  /* 사장님 공개 설정 (비로그인 주문 허용 여부). 표가 없으면 게스트 주문 허용으로 봅니다. */
+  /* 사장님 공개 설정 (비로그인 주문 허용 여부 · 기본 적립률). 표가 없으면 게스트 주문 허용·2%로 봅니다. */
   function fetchSettings() {
     if (mode === "demo" && !wantDb) {
       settings.ready = false;
       settings.requireLogin = false;
+      settings.pointRate = 2;
+      settings.pointsReady = false;
       return Promise.resolve(false);
     }
+    var withRate = true;
     return connectDb()
       .then(function (c) {
-        return c.from("shop_public_settings").select("require_login_to_order").eq("id", 1);
+        /* point_rate 열이 아직 없는 DB(업그레이드 전)에서도 동작하도록 단계적으로 줄입니다. */
+        return c.from("shop_public_settings").select("require_login_to_order, point_rate").eq("id", 1)
+          .then(function (res) {
+            if (!res.error) return res;
+            withRate = false;
+            return c.from("shop_public_settings").select("require_login_to_order").eq("id", 1);
+          });
       })
       .then(function (res) {
         if (res.error) throw new Error(res.error.message || "설정을 불러오지 못했습니다.");
         var row = (res.data || [])[0];
         settings.ready = !!row;
         settings.requireLogin = !!(row && row.require_login_to_order);
+        settings.pointRate = row && row.point_rate != null ? Number(row.point_rate) : 2;
+        if (!isFinite(settings.pointRate)) settings.pointRate = 2;
+        /* 적립금 기능이 DB에 준비됐는지 (point_rate 열이 실제로 있을 때만) */
+        settings.pointsReady = !!(row && withRate && row.point_rate != null);
         return settings.ready;
       })
       .catch(function (err) {
         settings.ready = false;
         settings.requireLogin = false;
+        settings.pointsReady = false;
         if (window.console && console.warn) console.warn("[ALL PO ONE] 설정 조회 실패:", err);
         return false;
       });
@@ -740,6 +764,9 @@
       cancelled_at: o.cancelled_at,
       expires_at: o.expires_at || null,
       total_amount: Number(o.total_amount) || 0,
+      used_points: Number(o.used_points) || 0,
+      earned_points: Number(o.earned_points) || 0,
+      points_awarded: !!o.points_awarded,
       customer_name: o.customer_name,
       depositor_name: o.depositor_name,
       phone: o.phone,
@@ -778,17 +805,34 @@
       memo: form.memo || "",
     };
     var items = lines.map(function (l) { return { product_id: l.id, qty: l.qty }; });
+    var usePoints = clampInt(form.usePoints, 0, 100000000);
 
-    return rpc("place_order", { p_customer: payload, p_items: items }).then(function (data) {
+    function done(data) {
       var raw = Array.isArray(data) ? data[0] : data;
       var order = normalizeDbOrder(raw && raw.order ? raw.order : raw);
       clearCart();
+      pointsPromise = null;
+      pointsCache = null;
       return fetchDbProducts().then(function () {
         emit("products");
         emit("orders");
+        emit("points");
         return order;
       });
-    });
+    }
+
+    function call(args) {
+      return rpc("place_order", args).then(done);
+    }
+
+    /* 적립금을 쓰지 않는 주문은 예전 2개 인자 함수만 있는 DB에서도 그대로 됩니다. */
+    return call({ p_customer: payload, p_items: items, p_use_points: usePoints })
+      .catch(function (err) {
+        if (usePoints === 0 && rpcMissing(err)) {
+          return call({ p_customer: payload, p_items: items });
+        }
+        throw err;
+      });
   }
 
   /* ── 주문 조회 (손님) ─────────────────────────────────── */
@@ -1014,8 +1058,8 @@
 
   function upgradeNeeded() {
     var e = new Error(
-      "새 기능(상품 추가·사진·회원 주문)은 DB 업그레이드가 필요합니다. " +
-      "Supabase SQL Editor 에서 supabase-upgrade-v2.sql 을 한 번 실행해 주세요."
+      "새 기능(적립금·상품 추가·사진·회원 주문)은 DB 업그레이드가 필요합니다. " +
+      "Supabase SQL Editor 에서 supabase-upgrade-v3.sql 을 한 번 실행해 주세요."
     );
     e.code = "NEED_UPGRADE";
     return e;
@@ -1046,6 +1090,9 @@
       p_stock: clampInt(data.stock, 0, 99999),
       p_subtitle: data.subtitle == null ? (prev ? prev.subtitle : null) : String(data.subtitle).trim(),
       p_image_url: data.image_url == null ? (prev ? prev.image_url : null) : String(data.image_url).trim(),
+      p_earn_points: data.earn_points === undefined
+        ? (prev ? prev.earn_points !== false : true)
+        : !!data.earn_points,
       p_pin: null,
     };
 
@@ -1061,7 +1108,8 @@
     var onlyBasic = prev &&
       payload.p_type === prev.type && payload.p_game === prev.game &&
       (payload.p_edition || "") === (prev.edition || "") &&
-      payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url;
+      payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url &&
+      payload.p_earn_points === (prev.earn_points !== false);
 
     if (onlyBasic) {
       return rpc("admin_update_product", {
@@ -1418,6 +1466,8 @@
         var user = (res && res.data && res.data.user) || sessionUser(session);
         if (!session) throw new Error("로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
         rememberSession(session);
+        pointsCache = null;
+        pointsPromise = null;
         emit("auth");
         return { session: session, user: user };
       });
@@ -1470,6 +1520,8 @@
         }
 
         rememberSession(session);
+        pointsCache = null;
+        pointsPromise = null;
         emit("auth");
         return { needsConfirm: false, session: session, user: user || sessionUser(session) };
       });
@@ -1500,6 +1552,8 @@
   }
 
   function signOutUser() {
+    pointsCache = null;
+    pointsPromise = null;
     if (mode !== "db") {
       rememberSession(null);
       emit("auth");
@@ -1674,6 +1728,150 @@
       });
   }
 
+  /* ── 적립금(포인트) 계산 · 조회 ─────────────────────────
+     서버(private.calc_earn_points)와 똑같은 2단계 반올림:
+     1의 자리 반올림 → 다시 10의 자리 반올림(100원 단위)
+     예) 49,900 × 2% = 998 → 1,000 → 1,000P
+         846 → 850 → 900 / 844 → 840 → 800 */
+  function calcEarnPoints(amount, rate) {
+    var amt = Math.max(0, Math.round(Number(amount) || 0));
+    var r = Math.max(0, Number(rate) || 0);
+    if (!amt || !r) return 0;
+    /* 부동소수점 오차 정리 (예: 846.0000000001) */
+    var raw = Math.round((amt * r / 100) * 1e6) / 1e6;
+    var step1 = Math.round(raw / 10) * 10;
+    var step2 = Math.round(step1 / 100) * 100;
+    return Math.max(0, Math.round(step2));
+  }
+
+  /* 화면에 보여줄 기본 적립률(%) */
+  function pointRate() {
+    var r = Number(settings.pointRate);
+    return isFinite(r) && r >= 0 ? r : 0;
+  }
+
+  /* DB에 적립금 기능(point_rate 열)이 준비됐는지 */
+  function pointsReady() {
+    return !!settings.pointsReady && mode === "db";
+  }
+
+  function normalizePointTx(t) {
+    return {
+      id: t.id,
+      amount: Number(t.amount) || 0,
+      kind: t.kind || "admin",
+      order_no: t.order_no || "",
+      memo: t.memo || "",
+      created_at: t.created_at,
+    };
+  }
+
+  /* 로그인 회원의 보유 적립금 + 최근 내역 (30초 캐시) */
+  function myPoints(force) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    if (!currentUser()) {
+      var e = new Error("로그인 후 이용해 주세요.");
+      e.code = "NOT_LOGGED_IN";
+      return Promise.reject(e);
+    }
+    if (!force && pointsCache && Date.now() - pointsCache.at < 30000) {
+      return Promise.resolve(pointsCache);
+    }
+    if (pointsPromise) return pointsPromise;
+
+    pointsPromise = rpc("my_points", { p_limit: 30 })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        var out = {
+          balance: Number(raw && raw.balance) || 0,
+          rate: raw && raw.rate != null ? Number(raw.rate) : pointRate(),
+          transactions: ((raw && raw.transactions) || []).map(normalizePointTx),
+          at: Date.now(),
+        };
+        pointsCache = out;
+        pointsPromise = null;
+        return out;
+      })
+      .catch(function (err) {
+        pointsPromise = null;
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+    return pointsPromise;
+  }
+
+  /* 마지막으로 받아 둔 적립금 (없으면 null) */
+  function cachedPoints() {
+    return pointsCache;
+  }
+
+  function setPointRate(rate) {
+    if (mode !== "db") {
+      var e = new Error("이 설정은 DB 연동 후에 바꿀 수 있습니다.");
+      e.code = "DEMO";
+      return Promise.reject(e);
+    }
+    return rpc("admin_set_point_rate", { p_rate: Number(rate), p_pin: null })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        settings.pointRate = Number(raw && raw.point_rate);
+        if (!isFinite(settings.pointRate)) settings.pointRate = Number(rate) || 0;
+        pointsCache = null;
+        emit("settings");
+        return settings.pointRate;
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 회원 목록 + 보유 적립금 */
+  function listMemberPoints(query) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    return rpc("admin_list_member_points", {
+      p_query: query ? String(query).trim() : null,
+      p_limit: 200,
+      p_pin: null,
+    })
+      .then(function (data) {
+        var list = Array.isArray(data) ? data : (data ? [data] : []);
+        return list.map(function (m) {
+          return {
+            user_id: m.user_id,
+            username: m.username || "",
+            name: m.name || "",
+            phone: m.phone || "",
+            balance: Number(m.balance) || 0,
+            joined_at: m.joined_at,
+          };
+        });
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 특정 회원에게 적립금 지급(+)/차감(-) */
+  function adjustPoints(userId, amount, memo) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    return rpc("admin_adjust_points", {
+      p_user_id: userId,
+      p_amount: Math.trunc(Number(amount) || 0),
+      p_memo: memo ? String(memo).trim() : null,
+      p_pin: null,
+    })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return { balance: Number(raw && raw.balance) || 0, amount: Number(raw && raw.amount) || 0 };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
   /* 사장님 설정: 비로그인 주문 허용 여부 */
   function requireLogin() {
     return !!settings.requireLogin;
@@ -1805,6 +2003,16 @@
     requireLogin: requireLogin,
     settingsReady: settingsReady,
     setRequireLogin: setRequireLogin,
+
+    /* 적립금 */
+    pointRate: pointRate,
+    pointsReady: pointsReady,
+    calcEarnPoints: calcEarnPoints,
+    myPoints: myPoints,
+    cachedPoints: cachedPoints,
+    setPointRate: setPointRate,
+    listMemberPoints: listMemberPoints,
+    adjustPoints: adjustPoints,
     user: currentUser,
     userMeta: userMeta,
     displayId: displayId,

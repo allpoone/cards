@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="logo.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160204" />
+<link rel="stylesheet" href="styles.css?v=202611160219" />
 </head>
 <body>
 <a class="skip-link" href="#products">상품 목록으로 건너뛰기</a>
@@ -67,6 +67,7 @@
         </button>
         <span class="header-user" id="headerUser" hidden>
           <span class="header-user__mail" id="headerUserMail"></span>
+          <button class="header-points" type="button" id="headerPoints" hidden="hidden" aria-label="내 적립금 내역 보기" title="보유 적립금">0P</button>
           <button class="btn btn--ghost btn--xs header-user__orders" type="button" id="myOrdersBtn" data-open-lookup>내 주문</button>
           <button class="btn btn--ghost btn--xs" type="button" id="logoutUserBtn">로그아웃</button>
         </span>
@@ -261,9 +262,9 @@
 <!-- ── 토스트 ─────────────────────────────────────────────── -->
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160204"></script>
-<script src="store.js?v=202611160204"></script>
-<script src="app.js?v=202611160204"></script>
-<script src="shop.js?v=202611160204"></script>
+<script src="cards.js?v=202611160219"></script>
+<script src="store.js?v=202611160219"></script>
+<script src="app.js?v=202611160219"></script>
+<script src="shop.js?v=202611160219"></script>
 </body>
 </html>

@@ -42,6 +42,10 @@
     return "₩" + (Number(n) || 0).toLocaleString("ko-KR");
   }
 
+  function pts(n) {
+    return (Number(n) || 0).toLocaleString("ko-KR") + "P";
+  }
+
   function digits(s) {
     return String(s == null ? "" : s).replace(/[^0-9]/g, "");
   }
@@ -307,6 +311,15 @@
 
       '<div class="aorder__total"><span>총 입금액</span><strong>' + won(o.total_amount) + "</strong></div>" +
 
+      (Number(o.used_points) > 0 || Number(o.earned_points) > 0
+        ? '<div class="aorder__points">' +
+          (Number(o.used_points) > 0 ? "<span>적립금 사용 <b>-" + pts(o.used_points) + "</b></span>" : "") +
+          (Number(o.earned_points) > 0
+            ? "<span>" + (o.points_awarded ? "적립 완료" : "적립 예정") + " <b>+" + pts(o.earned_points) + "</b></span>"
+            : "") +
+          "</div>"
+        : "") +
+
       '<dl class="aorder__info">' +
       "<dt>주문자</dt><dd>" + esc(o.customer_name) + " " + depositLine + "</dd>" +
       "<dt>연락처</dt><dd><a href=\"tel:" + esc(digits(o.phone)) + "\">" + esc(phoneText(o.phone)) + "</a></dd>" +
@@ -432,6 +445,9 @@
       '<input type="number" inputmode="numeric" min="0" data-field="price" value="' + p.price + '" /></label>' +
       '<label class="pf"><span>재고</span>' +
       '<input type="number" inputmode="numeric" min="0" max="99999" data-field="stock" value="' + p.stock + '" /></label>' +
+      '<label class="pf pf--wide"><span>적립금 지급 <em>(ON/OFF)</em></span>' +
+      '<span class="pf__check"><input type="checkbox" data-field="earn_points"' +
+      (p.earnPoints === false ? "" : " checked") + ' /> <span>이 상품을 살 때 적립금을 지급합니다</span></span></label>' +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || "") + '" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
@@ -492,6 +508,8 @@
       '<input type="number" id="npPrice" inputmode="numeric" min="0" placeholder="320000" /></label>' +
       '<label class="pf"><span>재고 <em>*</em></span>' +
       '<input type="number" id="npStock" inputmode="numeric" min="0" max="99999" value="1" /></label>' +
+      '<label class="pf pf--wide"><span>적립금 지급 <em>(ON/OFF)</em></span>' +
+      '<span class="pf__check"><input type="checkbox" id="npEarn" checked /> <span>이 상품을 살 때 적립금을 지급합니다</span></span></label>' +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
@@ -546,6 +564,7 @@
       stock: Number($("npStock").value) || 0,
       subtitle: ($("npSubtitle").value || "").trim(),
       image_url: ($("npImageUrl").value || "").trim(),
+      earn_points: $("npEarn") ? !!$("npEarn").checked : true,
     };
 
     if (!data.name) {
@@ -599,6 +618,10 @@
       stock: Number(v("stock")) || 0,
       subtitle: String(v("subtitle") || "").trim(),
       image_url: String(v("image_url") || "").trim(),
+      earn_points: (function () {
+        var box = row.querySelector('[data-field="earn_points"]');
+        return box ? !!box.checked : true;
+      })(),
     };
   }
 
@@ -625,6 +648,7 @@
       stock: values.stock,
       subtitle: values.subtitle,
       image_url: values.image_url,
+      earn_points: values.earn_points,
     })
       .then(function (p) {
         setBusy(btn, false);
@@ -721,11 +745,52 @@
 
     var msg = "";
     if (demo) msg = "DB 연동 전 테스트 모드에서는 이 설정을 바꿀 수 없습니다.";
-    else if (!ready) msg = "설정 표가 아직 없습니다. Supabase SQL Editor 에서 supabase-upgrade-v2.sql 을 한 번 실행해 주세요.";
+    else if (!ready) msg = "설정 표가 아직 없습니다. Supabase SQL Editor 에서 supabase-upgrade-v3.sql 을 한 번 실행해 주세요.";
     if (hint) {
       hint.textContent = msg;
       hint.hidden = !msg;
     }
+
+    /* 기본 적립률(%) */
+    var rateInput = $("pointRateInput");
+    var rateSave = $("pointRateSave");
+    var rateHint = $("pointRateHint");
+    if (rateInput) {
+      var rate = s.pointRate ? s.pointRate() : 0;
+      if (document.activeElement !== rateInput) rateInput.value = String(rate);
+      rateInput.disabled = demo || !ready;
+      if (rateSave) rateSave.disabled = demo || !ready;
+      var rmsg = "";
+      if (demo) rmsg = "DB 연동 전 테스트 모드에서는 적립률을 바꿀 수 없습니다.";
+      else if (!ready) rmsg = "적립률 설정은 supabase-upgrade-v3.sql 을 실행한 뒤에 쓸 수 있습니다.";
+      else rmsg = "지금 설정: " + rate + "% · 49,900원 주문 시 " +
+        (s.calcEarnPoints ? pts(s.calcEarnPoints(49900, rate)) : "-") + " 적립";
+      if (rateHint) { rateHint.textContent = rmsg; rateHint.hidden = !rmsg; }
+    }
+  }
+
+  function savePointRate() {
+    var s = window.APOStore;
+    if (!s || !s.setPointRate) return;
+    var input = $("pointRateInput");
+    var v = Number(input ? input.value : NaN);
+    if (!isFinite(v) || v < 0 || v > 50) {
+      toast("적립률은 0 ~ 50 사이로 입력해 주세요.", "warn");
+      if (input) input.focus();
+      return;
+    }
+    var btn = $("pointRateSave");
+    setBusy(btn, true, "저장 중…");
+    s.setPointRate(v)
+      .then(function (rate) {
+        setBusy(btn, false);
+        renderSettings();
+        toast("기본 적립률을 " + rate + "% 로 저장했습니다.", "ok");
+      })
+      .catch(function (err) {
+        setBusy(btn, false);
+        toast((err && err.message) || "적립률을 저장하지 못했습니다.", "warn");
+      });
   }
 
   function toggleRequireLogin() {
@@ -747,6 +812,119 @@
       .catch(function (err) {
         renderSettings();
         toast((err && err.message) || "설정을 바꾸지 못했습니다.", "warn");
+      });
+  }
+
+  /* ── 회원 적립금 관리 ──────────────────────────────── */
+  var memberQuery = "";
+  var memberBusy = false;
+
+  function memberRow(m) {
+    var sub = [
+      m.name && m.username ? m.name : "",
+      m.phone ? phoneText(m.phone) : "",
+      m.joined_at ? stamp(m.joined_at) + " 가입" : "",
+    ].filter(Boolean).join(" · ");
+
+    return (
+      '<article class="memprow" data-user="' + esc(m.user_id) + '" data-name="' + esc(m.username || m.name || "") + '">' +
+      '<div class="memprow__top">' +
+      '<div class="memprow__who">' +
+      '<b>' + esc(m.username || m.name || "회원") + "</b>" +
+      '<span>' + esc(sub || "-") + "</span>" +
+      "</div>" +
+      '<div class="memprow__bal"><span>보유</span><b data-balance>' + pts(m.balance) + "</b></div>" +
+      '<button class="btn btn--ghost btn--xs" type="button" data-point-toggle>적립금 조정</button>' +
+      "</div>" +
+      '<div class="memprow__edit" hidden>' +
+      '<div class="memprow__fields">' +
+      '<label class="pf"><span>지급(+) / 차감(-) P</span>' +
+      '<input type="number" inputmode="numeric" step="100" data-pt-amount placeholder="예: 1000 / -500" /></label>' +
+      '<label class="pf pf--wide"><span>사유 <em>(선택)</em></span>' +
+      '<input type="text" maxlength="60" data-pt-memo placeholder="예: 이벤트 적립" /></label>' +
+      "</div>" +
+      '<div class="memprow__actions">' +
+      '<button class="btn btn--gold btn--sm" type="button" data-pt-apply>적용</button>' +
+      '<button class="btn btn--text btn--xs" type="button" data-point-toggle>닫기</button>' +
+      "</div>" +
+      "</div>" +
+      "</article>"
+    );
+  }
+
+  function renderMembers(list) {
+    var host = $("memberList");
+    var empty = $("memberEmpty");
+    if (!host) return;
+    if (!list || !list.length) {
+      host.innerHTML = "";
+      if (empty) {
+        empty.textContent = memberQuery
+          ? "‘" + memberQuery + "’ 와 맞는 회원이 없습니다."
+          : "아직 가입한 회원이 없습니다.";
+        empty.hidden = false;
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    host.innerHTML = list.map(memberRow).join("");
+  }
+
+  function loadMembers() {
+    var s = window.APOStore;
+    if (!s || !s.listMemberPoints) return Promise.resolve([]);
+    if (s.isDemo()) { renderMembers([]); return Promise.resolve([]); }
+    var empty = $("memberEmpty");
+    if (empty) empty.hidden = true;
+    return s.listMemberPoints(memberQuery)
+      .then(function (list) { renderMembers(list); return list; })
+      .catch(function (err) {
+        renderMembers([]);
+        var empty2 = $("memberEmpty");
+        if (empty2) {
+          empty2.textContent = (err && err.code === "NEED_UPGRADE")
+            ? "회원 적립금은 supabase-upgrade-v3.sql 을 실행한 뒤에 쓸 수 있습니다."
+            : ((err && err.message) || "회원 목록을 불러오지 못했습니다.");
+          empty2.hidden = false;
+        }
+        return [];
+      });
+  }
+
+  function applyMemberPoints(row) {
+    var s = window.APOStore;
+    if (!s || !s.adjustPoints || memberBusy) return;
+    var userId = row.getAttribute("data-user");
+    var name = row.getAttribute("data-name") || "회원";
+    var amountEl = row.querySelector("[data-pt-amount]");
+    var memoEl = row.querySelector("[data-pt-memo]");
+    var amount = Math.trunc(Number(amountEl ? amountEl.value : 0) || 0);
+    if (!amount) {
+      toast("지급(+) 또는 차감(-)할 적립금을 입력해 주세요.", "warn");
+      if (amountEl) amountEl.focus();
+      return;
+    }
+
+    var label = amount > 0 ? pts(amount) + " 지급" : pts(-amount) + " 차감";
+    if (!window.confirm("[" + name + "] 님에게 " + label + "할까요?")) return;
+
+    var btn = row.querySelector("[data-pt-apply]");
+    memberBusy = true;
+    setBusy(btn, true, "적용 중…");
+    s.adjustPoints(userId, amount, memoEl ? memoEl.value : "")
+      .then(function (res) {
+        memberBusy = false;
+        setBusy(btn, false);
+        var bal = row.querySelector("[data-balance]");
+        if (bal) bal.textContent = pts(res.balance);
+        if (amountEl) amountEl.value = "";
+        if (memoEl) memoEl.value = "";
+        toast(name + " 님 " + label + " 완료 · 보유 " + pts(res.balance), "ok");
+      })
+      .catch(function (err) {
+        memberBusy = false;
+        setBusy(btn, false);
+        toast((err && err.message) || "적립금을 적용하지 못했습니다.", "warn");
       });
   }
 
@@ -880,6 +1058,50 @@
       toast("상품을 다시 불러왔습니다.", "ok");
     });
 
+    /* ── 기본 적립률 저장 ── */
+    $("pointRateSave").addEventListener("click", savePointRate);
+    $("pointRateInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); savePointRate(); }
+    });
+
+    /* ── 회원 적립금 ── */
+    $("memberReloadBtn").addEventListener("click", function () {
+      loadMembers().then(function () { toast("회원 적립금을 다시 불러왔습니다.", "ok"); });
+    });
+    $("memberSearchBtn").addEventListener("click", function () {
+      memberQuery = ($("memberSearch").value || "").trim();
+      loadMembers();
+    });
+    $("memberSearch").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      memberQuery = ($("memberSearch").value || "").trim();
+      loadMembers();
+    });
+    $("memberList").addEventListener("click", function (e) {
+      var row = e.target.closest(".memprow");
+      if (!row) return;
+      if (e.target.closest("[data-point-toggle]")) {
+        var box = row.querySelector(".memprow__edit");
+        var open = box.hidden;
+        box.hidden = !open;
+        if (open) {
+          var amt = box.querySelector("[data-pt-amount]");
+          if (amt) amt.focus();
+        }
+        return;
+      }
+      if (e.target.closest("[data-pt-apply]")) { applyMemberPoints(row); return; }
+    });
+    $("memberList").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      var input = e.target.closest("[data-pt-amount], [data-pt-memo]");
+      if (!input) return;
+      e.preventDefault();
+      var row = input.closest(".memprow");
+      if (row) applyMemberPoints(row);
+    });
+
     /* ── 주문 설정 토글 ── */
     $("requireLoginSwitch").addEventListener("click", toggleRequireLogin);
 
@@ -933,6 +1155,7 @@
 
     window.addEventListener("apo:products", renderProducts);
     window.addEventListener("apo:settings", renderSettings);
+    window.addEventListener("apo:points", loadMembers);
 
     /* 다른 탭(손님 화면)에서 주문이 들어오면 자동 반영 */
     window.addEventListener("storage", function (e) {
@@ -949,6 +1172,7 @@
     renderProducts();
     renderSettings();
     loadEvents();
+    loadMembers();
   }
 
   function boot() {

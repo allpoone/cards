@@ -37,6 +37,11 @@
     return "₩" + (Number(n) || 0).toLocaleString("ko-KR");
   }
 
+  /* 적립금 표기: 1,200P */
+  function pts(n) {
+    return (Number(n) || 0).toLocaleString("ko-KR") + "P";
+  }
+
   function digits(s) {
     return String(s == null ? "" : s).replace(/[^0-9]/g, "");
   }
@@ -315,6 +320,128 @@
     );
   }
 
+  /* ── 적립금 (주문서 계산) ─────────────────────────────── */
+  var checkoutUsePoints = 0;
+
+  function pointsCalcState() {
+    var s = store();
+    if (!s) return null;
+    var lines = s.cart();
+    var total = s.cartTotal();
+    var eligible = lines.reduce(function (n, l) {
+      return n + (l.product && l.product.earnPoints === false ? 0 : l.lineTotal);
+    }, 0);
+    var excluded = lines.filter(function (l) { return l.product && l.product.earnPoints === false; }).length;
+    var cached = s.cachedPoints ? s.cachedPoints() : null;
+    return {
+      total: total,
+      eligible: eligible,
+      excluded: excluded,
+      rate: s.pointRate ? s.pointRate() : 0,
+      balance: cached ? Number(cached.balance) || 0 : null,
+    };
+  }
+
+  /* 실결제 금액 기준 적립 예정 포인트 (서버와 같은 방식) */
+  function earnFor(eligible, total, use, rate) {
+    var s = store();
+    if (!s || total <= 0) return 0;
+    var left = Math.max(0, total - use);
+    var base = Math.round(Number(eligible) * left / total);
+    return s.calcEarnPoints(base, rate);
+  }
+
+  function pointsBoxMarkup(user) {
+    if (!user) return "";
+    var s0 = store();
+    if (!s0 || !s0.pointsReady || !s0.pointsReady()) return "";
+    var st = pointsCalcState();
+    if (!st) return "";
+    var balance = st.balance;
+    return (
+      '<div class="co-points" id="coPoints">' +
+      '<div class="co-points__head">' +
+      '<span class="co-points__label">보유 적립금</span>' +
+      '<strong class="co-points__balance" id="coPointBalance">' +
+      (balance == null ? "조회 중…" : pts(balance)) + "</strong>" +
+      (st.excluded
+        ? '<span class="co-points__note">적립 제외 상품 ' + st.excluded + "종</span>"
+        : "") +
+      "</div>" +
+      '<div class="co-points__row">' +
+      '<input id="coUsePoints" type="tel" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="사용할 적립금" value="0"' +
+      (balance === 0 ? " disabled" : "") + " />" +
+      '<span class="co-points__unit">P</span>' +
+      '<button class="btn btn--ghost btn--xs" type="button" data-use-all-points' +
+      (balance === 0 ? " disabled" : "") + ">전액 사용</button>" +
+      "</div>" +
+      '<p class="co-points__hint" id="coPointsHint">' + esc(earnHint(st.rate)) + "</p>" +
+      '<dl class="co-points__sum">' +
+      "<div><dt>상품 합계</dt><dd>" + won(st.total) + "</dd></div>" +
+      '<div><dt>적립금 사용</dt><dd id="coUsed">- ' + won(0) + "</dd></div>" +
+      '<div class="is-total"><dt>최종 입금액</dt><dd id="coFinal">' + won(st.total) + "</dd></div>" +
+      '<div class="is-earn"><dt>입금확인 시 적립</dt><dd id="coEarn">' +
+      pts(earnFor(st.eligible, st.total, 0, st.rate)) + "</dd></div>" +
+      "</dl>" +
+      "</div>"
+    );
+  }
+
+  function earnHint(rate) {
+    var r = Number(rate) || 0;
+    if (r <= 0) return "지금은 적립률이 0%입니다.";
+    return "결제 금액의 " + r + "% 적립 · 적립 제외 상품은 빠지고 100원 단위로 반올림됩니다.";
+  }
+
+  /* 입력에 따라 최종 입금액·적립 예정 포인트를 다시 계산 */
+  function updateCheckoutPoints() {
+    var s = store();
+    if (!s) return;
+    var st = pointsCalcState();
+    if (!st) return;
+    var input = $("coUsePoints");
+    var hint = $("coPointsHint");
+    var maxUse = Math.min(st.balance == null ? 0 : st.balance, st.total);
+    var use = input ? Math.floor(Number(String(input.value).replace(/[^0-9]/g, "")) || 0) : 0;
+
+    if (use > maxUse) {
+      use = maxUse;
+      if (hint) hint.textContent = "보유 적립금(" + pts(st.balance || 0) + ")까지만 사용할 수 있습니다.";
+    } else if (hint) {
+      hint.textContent = earnHint(st.rate);
+    }
+    if (input && String(input.value) !== String(use)) input.value = String(use);
+    checkoutUsePoints = use;
+
+    var finalPay = Math.max(0, st.total - use);
+    var earn = earnFor(st.eligible, st.total, use, st.rate);
+    if ($("coUsed")) $("coUsed").textContent = "- " + won(use);
+    if ($("coFinal")) $("coFinal").textContent = won(finalPay);
+    if ($("coEarn")) $("coEarn").textContent = pts(earn);
+    var submit = $("checkoutSubmit");
+    if (submit) {
+      submit.dataset.label = (currentUser() ? "주문하기" : "비회원으로 주문하기") + " · " + won(finalPay);
+      if (!submit.disabled) submit.textContent = submit.dataset.label;
+    }
+  }
+
+  /* 주문서에 적립금이 늦게 도착하면 값만 채워 줍니다. */
+  function fillCheckoutPoints() {
+    var s = store();
+    if (!s || !$("coPointBalance")) return;
+    s.myPoints()
+      .then(function (p) {
+        if (!$("coPointBalance")) return;
+        $("coPointBalance").textContent = pts(p.balance);
+        var input = $("coUsePoints");
+        var allBtn = document.querySelector("[data-use-all-points]");
+        if (input && p.balance > 0) input.disabled = false;
+        if (allBtn && p.balance > 0) allBtn.disabled = false;
+        updateCheckoutPoints();
+      })
+      .catch(function () { /* 업그레이드 전이면 조용히 0P */ });
+  }
+
   function openCheckout() {
     var s = store();
     if (!s) return;
@@ -362,6 +489,8 @@
         "</div>";
 
     var submitLabel = user ? "주문하기 · " + won(total) : "비회원으로 주문하기 · " + won(total);
+
+    checkoutUsePoints = 0;
 
     $("checkoutBody").innerHTML =
       '<div class="co">' +
@@ -420,6 +549,8 @@
 
       summaryMarkup(lines, total) +
 
+      pointsBoxMarkup(user) +
+
       '<div class="co-err" id="checkoutError" hidden></div>' +
 
       '<div class="co-actions">' +
@@ -433,6 +564,23 @@
     $("checkoutForm").addEventListener("submit", submitOrder);
     closeEl($("cartDrawer"));
     openEl($("checkoutModal"));
+
+    /* 적립금 사용칸 */
+    var useInput = $("coUsePoints");
+    if (useInput) {
+      useInput.addEventListener("input", updateCheckoutPoints);
+      useInput.addEventListener("blur", updateCheckoutPoints);
+    }
+    var allPointsBtn = document.querySelector("[data-use-all-points]");
+    if (allPointsBtn) {
+      allPointsBtn.addEventListener("click", function () {
+        var st = pointsCalcState();
+        if (!st || st.balance == null) return;
+        if ($("coUsePoints")) $("coUsePoints").value = String(Math.min(st.balance, st.total));
+        updateCheckoutPoints();
+      });
+    }
+    if (user) fillCheckoutPoints();
     var first = $("coName");
     if (first) setTimeout(function () { first.focus(); }, 60);
   }
@@ -485,6 +633,7 @@
       address: ($("coAddress").value || "").trim(),
       address_detail: ($("coAddressDetail").value || "").trim(),
       memo: ($("coMemo").value || "").trim(),
+      usePoints: checkoutUsePoints || 0,
     };
 
     var bad = validate(form);
@@ -673,6 +822,17 @@
       "<strong>" + won(order.total_amount) + "</strong>" +
       "</div>" +
 
+      (Number(order.used_points) > 0 || Number(order.earned_points) > 0
+        ? '<div class="done__points">' +
+          (Number(order.used_points) > 0
+            ? "<p>적립금 " + pts(order.used_points) + " 사용 (주문 금액에서 차감)</p>"
+            : "") +
+          (Number(order.earned_points) > 0
+            ? "<p><b>입금 확인되면 " + pts(order.earned_points) + " 적립</b>됩니다.</p>"
+            : "") +
+          "</div>"
+        : "") +
+
       '<ul class="done__items">' +
       (order.items || []).map(function (it) {
         return "<li><span>" + esc(it.product_name) + ' <em>×' + it.qty + "</em></span><b>" + won(it.line_total) + "</b></li>";
@@ -809,6 +969,14 @@
       }).join("") +
       "</ul>" +
       '<div class="order-card__total"><span>총 입금액</span><strong>' + won(o.total_amount) + "</strong></div>" +
+      (Number(o.used_points) > 0 || Number(o.earned_points) > 0
+        ? '<div class="order-card__points">' +
+          (Number(o.used_points) > 0 ? "<span>적립금 사용 <b>-" + pts(o.used_points) + "</b></span>" : "") +
+          (Number(o.earned_points) > 0
+            ? "<span>" + (o.points_awarded ? "적립 완료" : "적립 예정") + " <b>+" + pts(o.earned_points) + "</b></span>"
+            : "") +
+          "</div>"
+        : "") +
       (o.status === "pending_payment" ? bankMarkup(true) : "") +
       '<dl class="order-card__info">' +
       "<dt>주문자</dt><dd>" + esc(o.customer_name) + (o.depositor_name && o.depositor_name !== o.customer_name ? " (입금자 " + esc(o.depositor_name) + ")" : "") + "</dd>" +
@@ -946,7 +1114,7 @@
     return id ? "아이디 " + id : String(user.email || "");
   }
 
-  /* 헤더: 로그인 전에는 [로그인], 로그인 후에는 아이디 + [내 주문] + [로그아웃] */
+  /* 헤더: 로그인 전에는 [로그인], 로그인 후에는 아이디 + 보유 적립금 + [내 주문] + [로그아웃] */
   function renderAccount() {
     var user = currentUser();
     var openBtn = $("authOpenBtn");
@@ -966,6 +1134,81 @@
       mail.textContent = userLabel(user);
       mail.title = memberId(user) ? "아이디 " + memberId(user) : String(user.email || "");
     }
+
+    paintHeaderPoints();
+  }
+
+  /* 헤더 적립금 배지 */
+  function paintHeaderPoints() {
+    var el = $("headerPoints");
+    if (!el) return;
+    var user = currentUser();
+    var s = store();
+    var ready = !!(s && s.pointsReady && s.pointsReady());
+    if (!user || !ready) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    var cached = s.cachedPoints ? s.cachedPoints() : null;
+    if (cached) {
+      el.textContent = pts(cached.balance);
+      el.hidden = false;
+      el.title = "보유 적립금 " + pts(cached.balance) + " · 눌러서 내역 보기";
+      return;
+    }
+    el.textContent = "…P";
+    el.hidden = false;
+    if (s && s.myPoints) {
+      s.myPoints().then(function (p) {
+        if (!currentUser()) return;
+        el.textContent = pts(p.balance);
+        el.title = "보유 적립금 " + pts(p.balance) + " · 눌러서 내역 보기";
+        if ($("authPointsBalance")) fillAuthPoints(p);
+      }).catch(function () {
+        /* 업그레이드 전 DB → 배지는 숨김 */
+        el.hidden = true;
+      });
+    }
+  }
+
+  /* 계정 모달의 적립금 영역 */
+  function fillAuthPoints(data) {
+    if (!$("authPointsBalance")) return;
+    $("authPointsBalance").textContent = pts(data.balance);
+    var rateEl = $("authPointsRate");
+    if (rateEl) rateEl.textContent = earnHint(data.rate);
+    var list = $("authPointsList");
+    if (!list) return;
+    var rows = (data.transactions || []).slice(0, 12);
+    list.innerHTML = rows.length
+      ? rows.map(function (t) {
+          var plus = t.amount > 0;
+          var label = t.kind === "earn" ? "적립" : t.kind === "use" ? "사용" : t.kind === "refund" ? "환불" : "조정";
+          return '<li class="pt-row">' +
+            '<div class="pt-row__main"><b class="pt-row__label" data-kind="' + esc(t.kind) + '">' + esc(label) + "</b>" +
+            '<span class="pt-row__memo">' + esc(t.memo || t.order_no || "") + "</span></div>" +
+            '<div class="pt-row__side"><b class="pt-row__amt' + (plus ? " is-plus" : " is-minus") + '">' +
+            (plus ? "+" : "-") + pts(Math.abs(t.amount)) + "</b>" +
+            '<span class="pt-row__date">' + esc(stamp(t.created_at)) + "</span></div></li>";
+        }).join("")
+      : '<li class="pt-row pt-row--empty">아직 적립금 내역이 없습니다.</li>';
+  }
+
+  function loadAuthPoints() {
+    var s = store();
+    if (!s || !currentUser() || !$("authPointsBalance")) return;
+    var cached = s.cachedPoints ? s.cachedPoints() : null;
+    if (cached) fillAuthPoints(cached);
+    s.myPoints()
+      .then(function (p) { if ($("authPointsBalance")) fillAuthPoints(p); })
+      .catch(function (err) {
+        if ($("authPointsBalance")) $("authPointsBalance").textContent = "-";
+        var rateEl = $("authPointsRate");
+        if (rateEl) rateEl.textContent = (err && err.code === "NEED_UPGRADE")
+          ? "적립금은 DB 업그레이드(supabase-upgrade-v3.sql) 후에 사용할 수 있습니다."
+          : "적립금을 불러오지 못했습니다.";
+      });
   }
 
   function authPaneMarkup() {
@@ -982,6 +1225,14 @@
         '<p class="auth__lede">' + esc(userContact(user)) + "<br />" +
         (meta.phone ? "연락처 " + esc(phoneText(meta.phone)) : "연락처를 등록하면 주문서가 자동으로 채워집니다.") +
         "</p>" +
+        '<div class="auth__points" id="authPoints">' +
+        '<div class="auth__points-head">' +
+        "<span>보유 적립금</span>" +
+        '<strong id="authPointsBalance">…P</strong>' +
+        "</div>" +
+        '<p class="auth__points-rate" id="authPointsRate">적립금을 불러오는 중…</p>' +
+        '<ul class="auth__points-list" id="authPointsList"></ul>' +
+        "</div>" +
         '<div class="auth__actions">' +
         '<button class="btn btn--gold btn--block" type="button" data-open-lookup>내 주문 보기</button>' +
         '<button class="btn btn--ghost btn--block" type="button" data-auth-logout>로그아웃</button>' +
@@ -1065,6 +1316,7 @@
     body.innerHTML = authPaneMarkup();
     var first = $("authId");
     if (first && !currentUser()) setTimeout(function () { try { first.focus(); } catch (e) {} }, 60);
+    if (currentUser()) loadAuthPoints();
   }
 
   function openAuth(mode, opts) {
@@ -1270,6 +1522,11 @@
       }
 
       /* ── 회원 ── */
+      if (t.closest("#headerPoints")) {
+        e.preventDefault();
+        openAuth("login", {});
+        return;
+      }
       var authOpen = t.closest("[data-auth-open]");
       if (authOpen) {
         e.preventDefault();
@@ -1420,6 +1677,7 @@
     window.addEventListener("apo:orders", renderCart);
     window.addEventListener("apo:auth", renderAccount);
     window.addEventListener("apo:settings", renderAccount);
+    window.addEventListener("apo:points", function () { renderAccount(); if (!$("authModal").hidden) loadAuthPoints(); });
   }
 
   /* ── 테스트 모드 안내 / 초기 렌더 ─────────────────────── */
