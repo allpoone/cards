@@ -927,6 +927,13 @@
 
     if (openBtn) openBtn.hidden = !!user;
     if (box) box.hidden = !user;
+
+    /* 사장님 페이지 링크는 관리자 계정으로 로그인했을 때만 (푸터 아래) */
+    var adminLink = $("adminLink");
+    if (adminLink) {
+      var s = authSdk();
+      adminLink.hidden = !(user && s && s.isAdminUser && s.isAdminUser(user));
+    }
     if (mail && user) {
       mail.textContent = userLabel(user);
       mail.title = String(user.email || "");
