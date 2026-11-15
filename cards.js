@@ -39,8 +39,8 @@ const SITE_CONFIG = {
      예) bankAccount: { bank: "카카오뱅크", number: "3333-01-1234567", holder: "홍길동" },
      비워 두면 "입금 계좌 준비 중" 안내가 뜹니다. */
   bankAccount: {
-    bank: "",
-    number: "",
+    bank: "케이뱅크",
+    number: "100176120105",
     holder: "",
   },
 
