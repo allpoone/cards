@@ -1683,6 +1683,63 @@
       });
   }
 
+  /* 마이페이지: 이름 · 휴대폰 번호 · 비밀번호 변경
+     Supabase Auth 의 updateUser 로 실제 계정(user_metadata / 비밀번호)을 바꿉니다. */
+  function profileMessage(err) {
+    var raw = String((err && (err.message || err.msg || err.error_description)) || "");
+    var code = String((err && err.code) || "");
+    if (/should be different|same as the old/i.test(raw)) {
+      return "새 비밀번호가 지금 비밀번호와 같습니다. 다른 비밀번호를 입력해 주세요.";
+    }
+    if (/at least 6 characters|password.*(short|length)/i.test(raw)) {
+      return "비밀번호는 6자 이상으로 입력해 주세요.";
+    }
+    if (/rate limit|too many/i.test(raw) || code === "over_email_send_rate_limit" || code === "over_request_rate_limit") {
+      return "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+    }
+    if (/phone|user_metadata|invalid.*data/i.test(raw)) {
+      return "저장하지 못했습니다. 입력한 내용을 확인해 주세요.";
+    }
+    return raw || "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  function updateProfile(info) {
+    var u = currentUser();
+    if (!u) {
+      var noUser = new Error("로그인 후 이용해 주세요.");
+      noUser.code = "NOT_LOGGED_IN";
+      return Promise.reject(noUser);
+    }
+    if (mode !== "db") return Promise.reject(demoAuthError());
+
+    var input = info || {};
+    var data = {};
+    if (input.name !== undefined) data.name = String(input.name || "").trim();
+    if (input.phone !== undefined) data.phone = digits(input.phone);
+    var pw = input.password ? String(input.password) : "";
+
+    var payload = { data: data };
+    if (pw) payload.password = pw;
+
+    return connectDb()
+      .then(function (c) { return c.auth.updateUser(payload); })
+      .then(function (res) {
+        if (res && res.error) throw new Error(profileMessage(res.error));
+        var user = res && res.data && res.data.user;
+        /* 헤더·주문서가 바로 새 값을 쓰도록 세션 캐시도 갱신합니다. */
+        if (user) {
+          if (sessionCache) {
+            sessionCache.user = user;
+            rememberSession(sessionCache);
+          } else {
+            rememberSession({ user: user });
+          }
+        }
+        emit("auth");
+        return user || currentUser();
+      });
+  }
+
   function myOrders() {
     if (mode !== "db") return Promise.reject(demoAuthError());
     if (!currentUser()) {
@@ -2138,6 +2195,7 @@
     checkPhoneAvailable: checkPhoneAvailable,
     signOutUser: signOutUser,
     saveShipping: saveShipping,
+    updateProfile: updateProfile,
     myOrders: myOrders,
     cancelMyOrder: cancelMyOrder,
     expireNow: expireNow,

@@ -383,12 +383,17 @@
   }
 
   function updateStats() {
+    var total = $("statTotal");
+    var avail = $("statAvailable");
+    var oripa = $("statOripa");
+    /* 히어로 통계 박스가 없는 화면에서는 아무것도 하지 않습니다. */
+    if (!total || !avail || !oripa) return;
     var list = productList();
-    $("statTotal").textContent = list.length;
-    $("statAvailable").textContent = list.filter(function (p) {
+    total.textContent = list.length;
+    avail.textContent = list.filter(function (p) {
       return p.status === "available" || p.status === "low";
     }).length;
-    $("statOripa").textContent = list.filter(function (p) { return p.type === "oripa"; }).length;
+    oripa.textContent = list.filter(function (p) { return p.type === "oripa"; }).length;
   }
 
   /* ── 상세 모달 ────────────────────────────────────────── */

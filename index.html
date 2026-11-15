@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="logo.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160329" />
+<link rel="stylesheet" href="styles.css?v=202611160349" />
 </head>
 <body class="auth-pending">
 <a class="skip-link" href="#products">상품 목록으로 건너뛰기</a>
@@ -59,22 +59,21 @@
         <button class="badge badge--one" type="button" data-game-filter="onepiece" aria-pressed="false">One Piece</button>
       </div>
 
-      <!-- 회원: 로그인 / 로그인 후 계정 배지 + 내 주문 + 로그아웃 -->
+      <!-- 회원: 로그인 / 로그인 후 아이디 · 적립금(금색) · 로그아웃(회색) -->
       <div class="header-account">
         <button class="icon-btn icon-btn--auth" type="button" id="authOpenBtn" aria-label="로그인 또는 회원가입" title="로그인 / 회원가입">
           <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M12 12.2a3.7 3.7 0 1 0 0-7.4 3.7 3.7 0 0 0 0 7.4zM4.6 20.2c0-3.2 3.3-5.3 7.4-5.3s7.4 2.1 7.4 5.3"/></svg>
           <span class="icon-btn__label header-account__label">로그인</span>
         </button>
+        <!-- 로그인 후 헤더에는 보유 적립금 배지만 (숫자·단위 색 구분). 로그아웃은 마이페이지 안에 있습니다. -->
         <span class="header-user" id="headerUser" hidden>
-          <span class="header-user__mail" id="headerUserMail"></span>
-          <button class="header-points" type="button" id="headerPoints" hidden="hidden" aria-label="내 적립금 내역 보기" title="보유 적립금">0P</button>
-          <button class="btn btn--ghost btn--xs header-user__orders" type="button" id="myOrdersBtn" data-open-lookup>내 주문</button>
-          <button class="btn btn--ghost btn--xs" type="button" id="logoutUserBtn">로그아웃</button>
+          <button class="header-points" type="button" id="headerPoints" hidden="hidden" aria-label="내 적립금 내역 보기" title="보유 적립금 — 눌러서 적립금 내역 보기"><span class="pt-num">0</span><span class="pt-unit">P</span></button>
         </span>
       </div>
 
-      <button class="icon-btn" type="button" data-open-lookup aria-label="내 주문 조회" title="내 주문 조회">
-        <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M4 5.5h16v13H4zM4 9h16M8 13h4"/></svg>
+      <button class="icon-btn icon-btn--mypage" type="button" id="mypageBtn" aria-label="마이페이지" title="마이페이지 — 내 정보 · 주문 내역 · 적립금">
+        <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M4 5h16v14H4zM4 9.2h16M8.4 13.4h3.2M8.4 16.4h6"/></svg>
+        <span class="icon-btn__label">마이페이지</span>
       </button>
 
       <button class="icon-btn icon-btn--cart" type="button" data-open-cart aria-label="장바구니 열기">
@@ -89,37 +88,15 @@
 <main id="top">
   <!-- ── 히어로 ───────────────────────────────────────────── -->
   <section class="hero wrap">
-    <p class="hero__eyebrow">ALL PO ONE · SEALED BOX &amp; ORIPA · 유튜브 라이브 개봉</p>
+    <p class="hero__eyebrow" aria-label="모든 포켓몬 원피스 · ALL Pokemon OnePiece">
+      <span>모든</span><span>포켓몬</span><span>원피스</span>
+      <span>ALL</span><span>Pokemon</span><span>OnePiece</span>
+    </p>
     <h1 class="hero__title">
-      뜯기 전에, 제대로 확인하는<br />
-      <span class="hero__title-em">미개봉 박스 &amp; 오리파</span>
+      뽑고, 열고, 바로 확인하는<br />
+      <span class="hero__title-em">라이브 카드샵</span>
     </h1>
     <p class="hero__desc" id="intro"></p>
-
-    <div class="hero__stats">
-      <div class="stat">
-        <strong id="statTotal">0</strong>
-        <span>등록 상품</span>
-      </div>
-      <div class="stat">
-        <strong id="statAvailable">0</strong>
-        <span>판매 가능</span>
-      </div>
-      <div class="stat">
-        <strong id="statOripa">0</strong>
-        <span>오리파</span>
-      </div>
-    </div>
-
-    <div class="hero__cta">
-      <a class="btn btn--ghost" href="#products">상품 둘러보기</a>
-      <button class="btn btn--gold" type="button" data-open-cart>장바구니 보기</button>
-      <button class="btn btn--ghost" type="button" data-open-lookup>내 주문 조회</button>
-      <a class="btn btn--yt" id="ytLink" href="#" target="_blank" rel="noopener noreferrer" hidden>
-        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M21.6 7.2c-.2-.9-.9-1.6-1.8-1.8C18 5 12 5 12 5s-6 0-7.8.4c-.9.2-1.6.9-1.8 1.8C2 9 2 12 2 12s0 3 .4 4.8c.2.9.9 1.6 1.8 1.8C6 19 12 19 12 19s6 0 7.8-.4c.9-.2 1.6-.9 1.8-1.8.4-1.8.4-4.8.4-4.8s0-3-.4-4.8zM10 15.5v-7l6 3.5-6 3.5z"/></svg>
-        유튜브 라이브
-      </a>
-    </div>
   </section>
 
   <!-- ── 필터 & 검색 ──────────────────────────────────────── -->
@@ -132,8 +109,8 @@
           type="search"
           inputmode="search"
           autocomplete="off"
-          placeholder="박스명, 시리즈(예: 테라스탈, 500년 후의 미래), 오리파 이름 검색"
-          aria-label="박스명, 시리즈, 오리파 이름 검색"
+          placeholder="상품 검색"
+          aria-label="상품 검색"
         />
         <button class="search__clear" id="searchClear" type="button" aria-label="검색어 지우기" hidden>×</button>
       </div>
@@ -186,8 +163,6 @@
       <p id="footerNote"></p>
     </div>
     <div class="site-footer__actions">
-      <button class="btn btn--ghost btn--sm" type="button" data-open-lookup>내 주문 조회</button>
-      <button class="btn btn--kakao btn--sm" type="button" data-inquire>오픈톡 문의</button>
       <a class="footer-admin" href="admin.html" id="adminLink" rel="nofollow" hidden>사장님 페이지</a>
     </div>
   </div>
@@ -240,6 +215,15 @@
   </div>
 </div>
 
+<!-- ── 마이페이지 모달 (내 정보 · 주문 내역 · 적립금 / 비회원 조회) ── -->
+<div class="modal" id="mypageModal" hidden>
+  <div class="modal__backdrop" data-close-mypage></div>
+  <div class="modal__dialog modal__dialog--form" role="dialog" aria-modal="true" aria-labelledby="mypageTitle">
+    <button class="modal__close" type="button" data-close-mypage aria-label="닫기">×</button>
+    <div class="modal__body" id="mypageBody"></div>
+  </div>
+</div>
+
 <!-- ── 로그인 · 회원가입 모달 ─────────────────────────────── -->
 <div class="modal" id="authModal" hidden>
   <div class="modal__backdrop" data-close-auth></div>
@@ -262,9 +246,9 @@
 <!-- ── 토스트 ─────────────────────────────────────────────── -->
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160329"></script>
-<script src="store.js?v=202611160329"></script>
-<script src="app.js?v=202611160329"></script>
-<script src="shop.js?v=202611160329"></script>
+<script src="cards.js?v=202611160349"></script>
+<script src="store.js?v=202611160349"></script>
+<script src="app.js?v=202611160349"></script>
+<script src="shop.js?v=202611160349"></script>
 </body>
 </html>

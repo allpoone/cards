@@ -42,6 +42,12 @@
     return (Number(n) || 0).toLocaleString("ko-KR") + "P";
   }
 
+  /* 숫자와 단위(P)를 서로 다른 색으로 그리는 마크업 — 0P · 1,200P */
+  function ptsHtml(n) {
+    return '<span class="pt-num">' + (Number(n) || 0).toLocaleString("ko-KR") +
+      '</span><span class="pt-unit">P</span>';
+  }
+
   function digits(s) {
     return String(s == null ? "" : s).replace(/[^0-9]/g, "");
   }
@@ -149,7 +155,7 @@
 
   /* ── 화면 상태 헬퍼 ───────────────────────────────────── */
   function anyOverlay() {
-    var ids = ["cartDrawer", "checkoutModal", "doneModal", "lookupModal", "detailModal", "authModal"];
+    var ids = ["cartDrawer", "checkoutModal", "doneModal", "lookupModal", "detailModal", "authModal", "mypageModal"];
     for (var i = 0; i < ids.length; i++) {
       var el = $(ids[i]);
       if (el && !el.hidden) return true;
@@ -397,8 +403,8 @@
     var rates = st.rates || [];
     if (!rates.length) return "지금은 적립률이 0%인 상품만 담겨 있습니다.";
     var head = rates.length === 1
-      ? "결제 금액의 " + rates[0] + "% 적립"
-      : "상품별 적립률(" + rates.join(" · ") + "%)로 적립";
+      ? "실결제 금액(적립금 사용분 제외)의 " + rates[0] + "% 적립"
+      : "상품별 적립률(" + rates.join(" · ") + "%)로 실결제 금액 기준 적립";
     return head + " · 적립 제외 상품은 빠지고 100원 단위로 반올림됩니다.";
   }
 
@@ -528,7 +534,7 @@
       '<input id="coPhone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" value="' + esc(buyer.phone || "") + '"' +
       (phoneLocked ? ' readonly aria-readonly="true" class="is-locked"' : "") + " />" +
       (phoneLocked
-        ? '<p class="field__hint"><b>가입된 번호</b>로 주문합니다. 번호를 바꾸려면 사장님께 오픈톡으로 문의해 주세요.</p>'
+        ? '<p class="field__hint"><b>가입된 번호</b>로 주문합니다. 번호를 바꾸려면 <b>마이페이지 → 내 정보</b>에서 변경해 주세요.</p>'
         : "") +
       '<p class="field__err" data-err="coPhone" hidden></p>' +
       "</div>" +
@@ -792,6 +798,7 @@
         toast("주문을 취소했습니다. 재고가 복구되었습니다.", "ok");
         renderCart();
         if (!$("lookupModal").hidden) runLookup();
+        refreshMypage();
       })
       .catch(function (err) {
         toast((err && err.message) || "주문을 취소하지 못했습니다.", "warn");
@@ -1161,24 +1168,40 @@
     }
     var cached = s.cachedPoints ? s.cachedPoints() : null;
     if (cached) {
-      el.textContent = pts(cached.balance);
+      el.innerHTML = ptsHtml(cached.balance);
       el.hidden = false;
-      el.title = "보유 적립금 " + pts(cached.balance) + " · 눌러서 내역 보기";
+      el.title = "보유 적립금 " + pts(cached.balance) + " · 눌러서 적립금 내역 보기";
       return;
     }
-    el.textContent = "…P";
+    el.innerHTML = '<span class="pt-num">…</span><span class="pt-unit">P</span>';
     el.hidden = false;
     if (s && s.myPoints) {
       s.myPoints().then(function (p) {
         if (!currentUser()) return;
-        el.textContent = pts(p.balance);
-        el.title = "보유 적립금 " + pts(p.balance) + " · 눌러서 내역 보기";
+        el.innerHTML = ptsHtml(p.balance);
+        el.title = "보유 적립금 " + pts(p.balance) + " · 눌러서 적립금 내역 보기";
         if ($("authPointsBalance")) fillAuthPoints(p);
       }).catch(function () {
         /* 업그레이드 전 DB → 배지는 숨김 */
         el.hidden = true;
       });
     }
+  }
+
+  /* 적립금 내역 줄 — 계정 모달과 마이페이지가 함께 씁니다. */
+  function pointsRowsHtml(rows, limit) {
+    var list = (rows || []).slice(0, limit || 12);
+    if (!list.length) return '<li class="pt-row pt-row--empty">아직 적립금 내역이 없습니다.</li>';
+    return list.map(function (t) {
+      var plus = t.amount > 0;
+      var label = t.kind === "earn" ? "적립" : t.kind === "use" ? "사용" : t.kind === "refund" ? "환불" : "조정";
+      return '<li class="pt-row">' +
+        '<div class="pt-row__main"><b class="pt-row__label" data-kind="' + esc(t.kind) + '">' + esc(label) + "</b>" +
+        '<span class="pt-row__memo">' + esc(t.memo || t.order_no || "") + "</span></div>" +
+        '<div class="pt-row__side"><b class="pt-row__amt' + (plus ? " is-plus" : " is-minus") + '">' +
+        (plus ? "+" : "-") + pts(Math.abs(t.amount)) + "</b>" +
+        '<span class="pt-row__date">' + esc(stamp(t.created_at)) + "</span></div></li>";
+    }).join("");
   }
 
   /* 계정 모달의 적립금 영역 */
@@ -1189,19 +1212,7 @@
     if (rateEl) rateEl.textContent = earnHint(data.rate);
     var list = $("authPointsList");
     if (!list) return;
-    var rows = (data.transactions || []).slice(0, 12);
-    list.innerHTML = rows.length
-      ? rows.map(function (t) {
-          var plus = t.amount > 0;
-          var label = t.kind === "earn" ? "적립" : t.kind === "use" ? "사용" : t.kind === "refund" ? "환불" : "조정";
-          return '<li class="pt-row">' +
-            '<div class="pt-row__main"><b class="pt-row__label" data-kind="' + esc(t.kind) + '">' + esc(label) + "</b>" +
-            '<span class="pt-row__memo">' + esc(t.memo || t.order_no || "") + "</span></div>" +
-            '<div class="pt-row__side"><b class="pt-row__amt' + (plus ? " is-plus" : " is-minus") + '">' +
-            (plus ? "+" : "-") + pts(Math.abs(t.amount)) + "</b>" +
-            '<span class="pt-row__date">' + esc(stamp(t.created_at)) + "</span></div></li>";
-        }).join("")
-      : '<li class="pt-row pt-row--empty">아직 적립금 내역이 없습니다.</li>';
+    list.innerHTML = pointsRowsHtml(data.transactions, 12);
   }
 
   function loadAuthPoints() {
@@ -1392,6 +1403,7 @@
     toast((userLabel(user) || "회원") + "님 " + (isSignup ? "환영합니다!" : "로그인했습니다."), "ok");
 
     if (authNext === "checkout") openCheckout();
+    else if (authNext === "mypage") openMypage("info");
     authNext = "";
   }
 
@@ -1491,8 +1503,461 @@
     s.signOutUser().then(function () {
       renderAccount();
       closeEl($("authModal"));
+      if ($("mypageModal") && !$("mypageModal").hidden) {
+        mypageTab = "info";
+        renderMypage();
+      }
       toast("로그아웃했습니다.", "ok");
     });
+  }
+
+  /* ============================================================
+     마이페이지 — 내 정보 · 주문 내역 · 적립금 / 비회원 주문 조회
+     ============================================================ */
+  var mypageTab = "info";
+  var mpLookupMode = "no";
+  var mpLastQuery = null;
+  var mpSaveBusy = false;
+
+  function mypageTabsMarkup(active) {
+    var tabs = [
+      { k: "info", label: "내 정보" },
+      { k: "orders", label: "주문 내역" },
+      { k: "points", label: "적립금" }
+    ];
+    return (
+      '<div class="mypage__tabs" role="tablist" aria-label="마이페이지 메뉴">' +
+      tabs.map(function (t) {
+        return '<button class="mypage__tab" type="button" role="tab" data-mypage-tab="' + t.k + '" aria-selected="' +
+          (active === t.k ? "true" : "false") + '">' + t.label + "</button>";
+      }).join("") +
+      "</div>"
+    );
+  }
+
+  function mypageInfoMarkup(user) {
+    var meta = (user && user.user_metadata) || {};
+    var id = memberId(user);
+    var name = String(meta.name || "");
+    var phone = digits(meta.phone);
+    return (
+      '<form id="mypageForm" class="mypage__form" novalidate>' +
+      '<div class="field">' +
+      '<label for="mpId">아이디</label>' +
+      '<input id="mpId" type="text" value="' + esc(id) + '" readonly aria-readonly="true" class="is-locked" />' +
+      '<p class="field__hint">아이디는 바꿀 수 없습니다.</p>' +
+      "</div>" +
+      '<div class="field">' +
+      '<label for="mpName">이름 <span class="req">*</span></label>' +
+      '<input id="mpName" type="text" autocomplete="name" maxlength="30" value="' + esc(name) + '" placeholder="홍길동" />' +
+      '<p class="field__err" data-err="mpName" hidden></p>' +
+      "</div>" +
+      '<div class="field">' +
+      '<label for="mpPhone">휴대폰 번호 <span class="req">*</span></label>' +
+      '<input id="mpPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" value="' + esc(phoneText(phone)) + '" placeholder="010-0000-0000" />' +
+      '<p class="field__hint">주문서 연락처로 자동 입력됩니다. 같은 번호로는 한 번만 가입할 수 있습니다.</p>' +
+      '<p class="field__err" data-err="mpPhone" hidden></p>' +
+      "</div>" +
+      '<div class="mypage__grid">' +
+      '<div class="field">' +
+      '<label for="mpPw">새 비밀번호 <span class="opt">선택</span></label>' +
+      '<input id="mpPw" type="password" autocomplete="new-password" maxlength="72" placeholder="바꿀 때만 입력" />' +
+      '<p class="field__err" data-err="mpPw" hidden></p>' +
+      "</div>" +
+      '<div class="field">' +
+      '<label for="mpPw2">새 비밀번호 확인</label>' +
+      '<input id="mpPw2" type="password" autocomplete="new-password" maxlength="72" placeholder="한 번 더 입력" />' +
+      '<p class="field__err" data-err="mpPw2" hidden></p>' +
+      "</div>" +
+      "</div>" +
+      '<p class="auth__error" id="mypageError" role="alert" hidden></p>' +
+      '<button class="btn btn--gold btn--block" type="submit" id="mypageSave">저장</button>' +
+      '<p class="mypage__hint">저장하면 주문서 이름·연락처에도 바로 반영됩니다.</p>' +
+      "</form>"
+    );
+  }
+
+  function mypageOrdersMarkup() {
+    return '<div class="mypage__orders" id="mypageOrders"><p class="lookup__loading">불러오는 중…</p></div>';
+  }
+
+  function mypagePointsMarkup() {
+    return (
+      '<div class="mypage__points">' +
+      '<div class="mypage__balance">' +
+      "<span>보유 적립금</span>" +
+      '<strong id="mypagePointsBalance">…P</strong>' +
+      '<p id="mypagePointsRate">적립금을 불러오는 중…</p>' +
+      "</div>" +
+      '<ul class="auth__points-list mypage__points-list" id="mypagePointsList"><li class="pt-row pt-row--empty">불러오는 중…</li></ul>' +
+      "</div>"
+    );
+  }
+
+  function mypageGuestMarkup() {
+    var no = mpLookupMode === "no";
+    return (
+      '<div class="mypage">' +
+      '<p class="mypage__eyebrow">MY PAGE</p>' +
+      '<h2 class="mypage__title" id="mypageTitle">마이페이지</h2>' +
+      '<p class="mypage__lede">로그인하시면 내 정보 수정 · 주문 내역 · 적립금을 한곳에서 관리할 수 있어요.</p>' +
+      '<button class="btn btn--gold btn--block mypage__login" type="button" data-auth-open="login" data-auth-next="mypage">로그인 / 회원가입</button>' +
+      '<div class="mypage__sep"><span>비회원 주문 조회</span></div>' +
+      '<p class="mypage__note">주문번호 또는 주문자명 + 연락처로 주문 상태를 확인할 수 있어요.</p>' +
+      '<div class="lookup__tabs" role="group" aria-label="조회 방법">' +
+      '<button class="lookup__tab" type="button" data-mp-mode="no" aria-pressed="' + (no ? "true" : "false") + '">주문번호로 조회</button>' +
+      '<button class="lookup__tab" type="button" data-mp-mode="info" aria-pressed="' + (no ? "false" : "true") + '">연락처 + 주문자명</button>' +
+      "</div>" +
+      '<form id="mpLookupForm" class="lookup__form" novalidate>' +
+      '<div class="lookup__panes">' +
+      '<div class="lookup__pane" data-mp-pane="no"' + (no ? "" : " hidden") + ">" +
+      '<div class="field">' +
+      '<label for="mpLookupNo">주문번호</label>' +
+      '<input id="mpLookupNo" type="text" autocomplete="off" placeholder="APO-20261116-ABCD" maxlength="24" />' +
+      "</div>" +
+      "</div>" +
+      '<div class="lookup__pane" data-mp-pane="info"' + (no ? " hidden" : "") + ">" +
+      '<div class="lookup__grid">' +
+      '<div class="field">' +
+      '<label for="mpLookupName">주문자명</label>' +
+      '<input id="mpLookupName" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" />' +
+      "</div>" +
+      '<div class="field">' +
+      '<label for="mpLookupPhone">연락처</label>' +
+      '<input id="mpLookupPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" />' +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      '<button class="btn btn--ghost btn--block" type="submit" id="mpLookupSubmit">조회하기</button>' +
+      "</form>" +
+      '<div class="lookup__results" id="mpLookupResults" aria-live="polite"></div>' +
+      "</div>"
+    );
+  }
+
+  function renderMypage() {
+    var body = $("mypageBody");
+    if (!body) return;
+    var user = currentUser();
+
+    if (!user) {
+      body.innerHTML = mypageGuestMarkup();
+      return;
+    }
+
+    var meta = user.user_metadata || {};
+    var sub = [userContact(user)];
+    if (meta.phone) sub.push("연락처 " + phoneText(meta.phone));
+
+    body.innerHTML =
+      '<div class="mypage">' +
+      '<p class="mypage__eyebrow">MY PAGE</p>' +
+      '<h2 class="mypage__title" id="mypageTitle">' + esc(userLabel(user)) + "님</h2>" +
+      '<p class="mypage__lede">' + esc(sub.filter(Boolean).join(" · ")) + "</p>" +
+      mypageTabsMarkup(mypageTab) +
+      '<div class="mypage__panel" data-mypage-pane="info"' + (mypageTab === "info" ? "" : " hidden") + ">" +
+      mypageInfoMarkup(user) +
+      "</div>" +
+      '<div class="mypage__panel" data-mypage-pane="orders"' + (mypageTab === "orders" ? "" : " hidden") + ">" +
+      mypageOrdersMarkup() +
+      "</div>" +
+      '<div class="mypage__panel" data-mypage-pane="points"' + (mypageTab === "points" ? "" : " hidden") + ">" +
+      mypagePointsMarkup() +
+      "</div>" +
+      '<div class="mypage__foot">' +
+      '<button class="btn btn--ghost btn--sm" type="button" data-mypage-logout>로그아웃</button>' +
+      "</div>" +
+      "</div>";
+
+    applyMypageTab();
+  }
+
+  /* 탭 표시만 바꿉니다 (입력 중인 값이 지워지지 않도록 다시 그리지 않음) */
+  function applyMypageTab() {
+    var tabs = document.querySelectorAll("#mypageBody [data-mypage-tab]");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].setAttribute("aria-selected", tabs[i].getAttribute("data-mypage-tab") === mypageTab ? "true" : "false");
+    }
+    var panes = document.querySelectorAll("#mypageBody [data-mypage-pane]");
+    for (var j = 0; j < panes.length; j++) {
+      panes[j].hidden = panes[j].getAttribute("data-mypage-pane") !== mypageTab;
+    }
+    if (mypageTab === "orders") loadMypageOrders();
+    if (mypageTab === "points") loadMypagePoints();
+  }
+
+  function setMypageTab(tab) {
+    mypageTab = tab === "orders" || tab === "points" ? tab : "info";
+    applyMypageTab();
+  }
+
+  function openMypage(tab) {
+    mypageTab = tab === "orders" || tab === "points" ? tab : "info";
+    mpLookupMode = "no";
+    mpLastQuery = null;
+    renderMypage();
+    openEl($("mypageModal"));
+    startTicker();
+    if (!currentUser()) {
+      var input = $("mpLookupNo");
+      if (input) setTimeout(function () { try { input.focus(); } catch (e) {} }, 80);
+    }
+  }
+
+  function loadMypageOrders() {
+    var box = $("mypageOrders");
+    var s = store();
+    if (!box || !s || !currentUser()) return;
+    box.innerHTML = '<p class="lookup__loading">불러오는 중…</p>';
+    s.myOrders()
+      .then(function (list) {
+        if (!$("mypageOrders")) return;
+        if (!list || !list.length) {
+          box.innerHTML =
+            '<div class="lookup__empty">' +
+            "<p>아직 주문 내역이 없습니다.</p>" +
+            '<p class="lookup__empty-desc">이 계정으로 주문하면 이곳에 바로 표시됩니다. 다른 이름·연락처로 주문했다면 비회원 주문 조회를 이용해 주세요.</p>' +
+            '<button class="btn btn--ghost btn--sm" type="button" data-close-mypage>상품 보러 가기</button>' +
+            "</div>";
+          return;
+        }
+        box.innerHTML =
+          '<p class="lookup__count">' + list.length + "건의 주문을 찾았습니다.</p>" +
+          list.map(orderCard).join("");
+      })
+      .catch(function (err) {
+        if (!$("mypageOrders")) return;
+        box.innerHTML = '<p class="lookup__hint">' +
+          esc((err && err.message) || "주문 내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.") + "</p>";
+      });
+  }
+
+  function fillMypagePoints(data) {
+    var bal = $("mypagePointsBalance");
+    if (!bal) return;
+    bal.innerHTML = ptsHtml(data.balance);
+    var rateEl = $("mypagePointsRate");
+    if (rateEl) rateEl.textContent = earnHint(data.rate);
+    var list = $("mypagePointsList");
+    if (list) list.innerHTML = pointsRowsHtml(data.transactions, 30);
+  }
+
+  function loadMypagePoints() {
+    var s = store();
+    if (!s || !currentUser() || !$("mypagePointsBalance")) return;
+    var ready = s.pointsReady ? s.pointsReady() : false;
+    var rateEl = $("mypagePointsRate");
+    var list = $("mypagePointsList");
+
+    if (!ready) {
+      $("mypagePointsBalance").innerHTML = ptsHtml(0);
+      if (rateEl) {
+        rateEl.textContent = "적립금 기능이 아직 준비되지 않았습니다. DB 업그레이드(supabase-upgrade-v3.sql) 후에 표시됩니다.";
+      }
+      if (list) list.innerHTML = '<li class="pt-row pt-row--empty">적립금 내역이 없습니다.</li>';
+      return;
+    }
+
+    var cached = s.cachedPoints ? s.cachedPoints() : null;
+    if (cached) fillMypagePoints(cached);
+
+    s.myPoints()
+      .then(fillMypagePoints)
+      .catch(function (err) {
+        if (!$("mypagePointsBalance")) return;
+        $("mypagePointsBalance").textContent = "-";
+        if (rateEl) {
+          rateEl.textContent = (err && err.code === "NEED_UPGRADE")
+            ? "적립금은 DB 업그레이드(supabase-upgrade-v3.sql) 후에 사용할 수 있습니다."
+            : "적립금을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+        }
+      });
+  }
+
+  /* 비회원 주문 조회 (마이페이지 안) */
+  function setMpLookupMode(mode) {
+    mpLookupMode = mode === "info" ? "info" : "no";
+    var tabs = document.querySelectorAll("#mypageBody [data-mp-mode]");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].setAttribute("aria-pressed", tabs[i].getAttribute("data-mp-mode") === mpLookupMode ? "true" : "false");
+    }
+    var panes = document.querySelectorAll("#mypageBody [data-mp-pane]");
+    for (var j = 0; j < panes.length; j++) {
+      panes[j].hidden = panes[j].getAttribute("data-mp-pane") !== mpLookupMode;
+    }
+    var focusEl = mpLookupMode === "no" ? $("mpLookupNo") : $("mpLookupName");
+    if (focusEl) focusEl.focus();
+  }
+
+  function runMypageLookup() {
+    var s = store();
+    var results = $("mpLookupResults");
+    if (!s || !results) return;
+
+    var query = { orderNo: "", name: "", phone: "" };
+    if (mpLookupMode === "no") {
+      query.orderNo = (($("mpLookupNo") || {}).value || "").trim();
+      if (!query.orderNo) {
+        results.innerHTML = '<p class="lookup__hint">주문번호를 입력해 주세요.</p>';
+        if ($("mpLookupNo")) $("mpLookupNo").focus();
+        return;
+      }
+    } else {
+      query.name = (($("mpLookupName") || {}).value || "").trim();
+      query.phone = digits(($("mpLookupPhone") || {}).value || "");
+      if (!query.name || query.phone.length < 9) {
+        results.innerHTML = '<p class="lookup__hint">주문자명과 연락처를 정확히 입력해 주세요.</p>';
+        return;
+      }
+    }
+
+    mpLastQuery = { mode: mpLookupMode, query: query };
+    results.innerHTML = '<p class="lookup__loading">조회 중…</p>';
+
+    s.lookupOrders(query)
+      .then(function (list) {
+        if (!$("mpLookupResults")) return;
+        if (!list || !list.length) {
+          results.innerHTML =
+            '<div class="lookup__empty">' +
+            "<p>해당 주문을 찾을 수 없습니다.</p>" +
+            '<p class="lookup__empty-desc">주문번호와 연락처를 다시 확인해 주세요. 찾기 어려우면 오픈톡으로 문의해 주세요.</p>' +
+            '<button class="btn btn--kakao btn--sm" type="button" data-inquire>오픈톡 문의</button>' +
+            "</div>";
+          return;
+        }
+        results.innerHTML =
+          '<p class="lookup__count">' + list.length + "건의 주문을 찾았습니다.</p>" +
+          list.map(orderCard).join("");
+      })
+      .catch(function (err) {
+        if (!$("mpLookupResults")) return;
+        results.innerHTML = '<p class="lookup__hint">' +
+          esc((err && err.message) || "조회에 실패했습니다. 잠시 후 다시 시도해 주세요.") + "</p>";
+      });
+  }
+
+  /* 주문 취소 뒤 화면 갱신 */
+  function refreshMypage() {
+    var modal = $("mypageModal");
+    if (!modal || modal.hidden) return;
+    if (currentUser()) {
+      if (mypageTab === "orders") loadMypageOrders();
+      return;
+    }
+    if (mpLastQuery) runMypageLookup();
+  }
+
+  function setMpFieldError(name, msg) {
+    var el = document.querySelector('#mypageBody [data-err="' + name + '"]');
+    if (!el) return;
+    el.textContent = msg || "";
+    el.hidden = !msg;
+  }
+
+  function setMpBusy(on) {
+    mpSaveBusy = !!on;
+    var btn = $("mypageSave");
+    if (!btn) return;
+    btn.disabled = !!on;
+    if (on) {
+      btn.dataset.label = btn.textContent;
+      btn.textContent = "저장 중…";
+    } else if (btn.dataset.label) {
+      btn.textContent = btn.dataset.label;
+    }
+  }
+
+  function saveMypageProfile(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (mpSaveBusy) return;
+    var s = store();
+    var user = currentUser();
+    if (!s || !user) return;
+
+    var meta = user.user_metadata || {};
+    var oldName = String(meta.name || "").trim();
+    var oldPhone = digits(meta.phone);
+
+    var name = (($("mpName") || {}).value || "").trim();
+    var phone = digits(($("mpPhone") || {}).value || "");
+    var pw = ($("mpPw") || {}).value || "";
+    var pw2 = ($("mpPw2") || {}).value || "";
+
+    ["mpName", "mpPhone", "mpPw", "mpPw2"].forEach(function (k) { setMpFieldError(k, ""); });
+    var box = $("mypageError");
+    if (box) { box.textContent = ""; box.hidden = true; }
+
+    var bad = null;
+    if (!name) { setMpFieldError("mpName", "이름을 입력해 주세요."); bad = bad || "mpName"; }
+    if (!phone) { setMpFieldError("mpPhone", "휴대폰 번호를 입력해 주세요."); bad = bad || "mpPhone"; }
+    else if (!/^01[016789][0-9]{7,8}$/.test(phone)) {
+      setMpFieldError("mpPhone", "휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)");
+      bad = bad || "mpPhone";
+    }
+    if (pw) {
+      if (pw.length < 6) { setMpFieldError("mpPw", "비밀번호는 6자 이상으로 입력해 주세요."); bad = bad || "mpPw"; }
+      else if (pw !== pw2) { setMpFieldError("mpPw2", "새 비밀번호가 서로 다릅니다."); bad = bad || "mpPw2"; }
+    } else if (pw2) {
+      setMpFieldError("mpPw2", "바꿀 비밀번호를 위 칸에 먼저 입력해 주세요.");
+      bad = bad || "mpPw2";
+    }
+    if (bad) {
+      var first = $(bad);
+      if (first) first.focus();
+      return;
+    }
+
+    var phoneChanged = phone !== oldPhone;
+    if (!phoneChanged && name === oldName && !pw) {
+      toast("바뀐 내용이 없습니다.", "info");
+      return;
+    }
+
+    setMpBusy(true);
+
+    /* 번호를 바꿀 때만 중복 가입 확인 */
+    var check = phoneChanged && s.checkPhoneAvailable
+      ? s.checkPhoneAvailable(phone)
+      : Promise.resolve({ ok: true });
+
+    check
+      .then(function (chk) {
+        if (chk && chk.ok === false) {
+          setMpBusy(false);
+          setMpFieldError("mpPhone", "이미 가입된 휴대폰 번호입니다.");
+          if ($("mpPhone")) $("mpPhone").focus();
+          return null;
+        }
+        return s.updateProfile({ name: name, phone: phone, password: pw }).then(function () {
+          setMpBusy(false);
+          renderAccount();
+          if ($("mpPw")) $("mpPw").value = "";
+          if ($("mpPw2")) $("mpPw2").value = "";
+          var now = currentUser();
+          var nowMeta = (now && now.user_metadata) || {};
+          if ($("mpName")) $("mpName").value = String(nowMeta.name || name);
+          if ($("mpPhone")) $("mpPhone").value = phoneText(digits(nowMeta.phone) || phone);
+          /* 모달 제목·안내줄도 새 값으로 */
+          if ($("mypageTitle") && now) $("mypageTitle").textContent = userLabel(now) + "님";
+          var lede = document.querySelector("#mypageBody .mypage__lede");
+          if (lede && now) {
+            var parts = [userContact(now)];
+            if (nowMeta.phone) parts.push("연락처 " + phoneText(nowMeta.phone));
+            lede.textContent = parts.filter(Boolean).join(" · ");
+          }
+          toast(pw ? "개인정보와 비밀번호를 바꿨습니다." : "개인정보를 저장했습니다.", "ok");
+        });
+      })
+      .catch(function (err) {
+        setMpBusy(false);
+        var errBox = $("mypageError");
+        if (errBox) {
+          errBox.textContent = (err && err.message) || "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+          errBox.hidden = false;
+        }
+      });
   }
 
   /* ── 이벤트 연결 ──────────────────────────────────────── */
@@ -1528,23 +1993,61 @@
       if (t.closest("[data-open-lookup]")) {
         e.preventDefault();
         var btn = t.closest("[data-open-lookup]");
+        var orderNo = btn.getAttribute("data-open-lookup") || "";
         closeEl($("doneModal"));
         closeEl($("authModal"));
+        closeEl($("mypageModal"));
         closeCart();
-        openLookup(btn.getAttribute("data-open-lookup") || "");
+        /* 로그인 회원은 마이페이지(주문 내역), 비회원은 주문 조회 */
+        if (currentUser()) openMypage("orders");
+        else openLookup(orderNo);
         return;
       }
 
       /* ── 회원 ── */
+      if (t.closest("#mypageBtn")) {
+        e.preventDefault();
+        closeEl($("checkoutModal"));
+        closeEl($("authModal"));
+        closeCart();
+        openMypage("info");
+        return;
+      }
+      var mpTab = t.closest("[data-mypage-tab]");
+      if (mpTab) {
+        e.preventDefault();
+        setMypageTab(mpTab.getAttribute("data-mypage-tab"));
+        return;
+      }
+      if (t.closest("[data-close-mypage]")) {
+        e.preventDefault();
+        closeEl($("mypageModal"));
+        return;
+      }
+      if (t.closest("[data-mypage-logout]")) {
+        e.preventDefault();
+        doLogoutUser();
+        return;
+      }
+      var mpMode = t.closest("[data-mp-mode]");
+      if (mpMode) {
+        e.preventDefault();
+        setMpLookupMode(mpMode.getAttribute("data-mp-mode"));
+        return;
+      }
       if (t.closest("#headerPoints")) {
         e.preventDefault();
-        openAuth("login", {});
+        closeEl($("authModal"));
+        closeEl($("checkoutModal"));
+        closeCart();
+        openMypage("points");
         return;
       }
       var authOpen = t.closest("[data-auth-open]");
       if (authOpen) {
         e.preventDefault();
         closeEl($("checkoutModal"));
+        closeEl($("mypageModal"));
         openAuth(authOpen.getAttribute("data-auth-open"), {
           next: authOpen.getAttribute("data-auth-next") || "",
         });
@@ -1653,11 +2156,19 @@
     });
     $("authModal").addEventListener("submit", submitAuth);
 
+    $("mypageModal").addEventListener("click", function (e) {
+      if (e.target.closest("[data-close-mypage]")) closeEl($("mypageModal"));
+    });
+    $("mypageModal").addEventListener("submit", function (e) {
+      if (e.target && e.target.id === "mypageForm") return saveMypageProfile(e);
+      if (e.target && e.target.id === "mpLookupForm") {
+        e.preventDefault();
+        return runMypageLookup();
+      }
+    });
+
     if ($("authOpenBtn")) {
       $("authOpenBtn").addEventListener("click", function () { openAuth("login", {}); });
-    }
-    if ($("logoutUserBtn")) {
-      $("logoutUserBtn").addEventListener("click", doLogoutUser);
     }
     $("cartDrawer").addEventListener("click", function (e) {
       if (e.target.closest("[data-close-cart]")) closeEl($("cartDrawer"));
@@ -1675,6 +2186,7 @@
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
       if (!$("authModal").hidden) { closeEl($("authModal")); return; }
+      if (!$("mypageModal").hidden) { closeEl($("mypageModal")); return; }
       if (!$("checkoutModal").hidden) {
         closeEl($("checkoutModal"));
         var s3 = store();
