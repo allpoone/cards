@@ -311,6 +311,16 @@
     emptyState.hidden = list.length !== 0;
     resultCount.innerHTML = '<b>' + list.length + "</b> / " + PRODUCTS.length + "개";
     searchClear.hidden = !state.q;
+    syncGameBadges();
+  }
+
+  /* 헤더 종목 버튼 상태 동기화 */
+  function syncGameBadges() {
+    var badges = document.querySelectorAll("[data-game-filter]");
+    for (var i = 0; i < badges.length; i++) {
+      var g = badges[i].getAttribute("data-game-filter");
+      badges[i].setAttribute("aria-pressed", state.game === g ? "true" : "false");
+    }
   }
 
   function updateStats() {
@@ -453,6 +463,21 @@
         render();
       });
     });
+
+    /* 헤더 종목 버튼: 누르면 해당 종목만, 다시 누르면 전체 */
+    var badges = document.querySelectorAll("[data-game-filter]");
+    for (var i = 0; i < badges.length; i++) {
+      badges[i].addEventListener("click", function () {
+        var g = this.getAttribute("data-game-filter");
+        state.game = state.game === g ? "all" : g;
+        buildChips();
+        render();
+        var target = $("products");
+        if (target && target.scrollIntoView) {
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+    }
 
     var t = null;
     searchInput.addEventListener("input", function () {
