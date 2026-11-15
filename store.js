@@ -642,7 +642,8 @@
     return {
       id: String(r.id),
       name: r.name || "",
-      type: r.type || "box",
+      /* 예전 'single' 분류는 'etc'(기타)로 보여 줍니다. (업그레이드 SQL이 DB도 바꿉니다) */
+      type: (r.type === "single" ? "etc" : r.type) || "box",
       game: r.game || "pokemon",
       edition: r.edition || "",
       price: Number(r.price) || 0,
