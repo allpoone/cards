@@ -738,6 +738,10 @@
       '<h3 class="seat__title">번호 선택</h3>' +
       '<p class="seat__meta" data-seat-meta>불러오는 중…</p>' +
       "</div>" +
+      /* 전체 선택 · 전체 해제 — 번호판이 채워진 뒤에만 나옵니다. */
+      '<div class="seat__tools">' +
+      '<button class="seat__all" type="button" data-seat-all hidden disabled>전체 선택</button>' +
+      "</div>" +
       /* 50개씩 넘겨 보기 — 총 구수가 51구 이상일 때만 채웁니다. */
       '<div class="seat__pager" data-seat-pager hidden></div>' +
       '<p class="seat__loading" data-seat-loading>번호를 불러오는 중…</p>' +
@@ -841,6 +845,43 @@
     return false;
   }
 
+  /* 전체 선택 대상: 지금 고를 수 있는 남은 번호 (팔림·입금대기·장바구니 번호 제외) */
+  function seatAllTargets() {
+    var out = [];
+    for (var n = 1; n <= seat.total; n++) {
+      if ((seat.status[n] || "available") !== "available") continue;
+      if (seat.inCart[n]) continue;
+      out.push(n);
+    }
+    return out;
+  }
+
+  function seatAllIsOn(targets) {
+    if (!targets.length) return false;
+    var picked = {};
+    seat.picked.forEach(function (n) { picked[n] = true; });
+    for (var i = 0; i < targets.length; i++) if (picked[targets[i]] !== true) return false;
+    return true;
+  }
+
+  /* 버튼 문구: 다 골랐으면 '전체 해제', 아니면 '전체 선택' */
+  function paintSeatAll() {
+    var btn = document.querySelector("[data-seat-all]");
+    if (!btn) return;
+    if (!seat.total) {
+      btn.hidden = true;
+      btn.disabled = true;
+      return;
+    }
+    var targets = seatAllTargets();
+    var on = seatAllIsOn(targets);
+    btn.hidden = false;
+    btn.disabled = targets.length === 0;
+    btn.textContent = on ? "전체 해제" : "전체 선택";
+    btn.classList.toggle("is-all-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
   /* 페이지 바 (51구 이상일 때만) */
   function paintSeatPager() {
     var box = document.querySelector("[data-seat-pager]");
@@ -903,6 +944,7 @@
     host.innerHTML = html;
     host.hidden = false;
     paintSeatPager();
+    paintSeatAll();
     var legend = document.querySelector("[data-seat-legend]");
     if (legend) legend.hidden = false;
   }
@@ -916,7 +958,8 @@
     if (!box) return;
     var picked = seat.picked.slice().sort(function (a, b) { return a - b; });
     var nums = picked.length
-      ? picked.map(function (n) { return "<b>#" + n + "</b>"; }).join("")
+      ? picked.slice(0, 12).map(function (n) { return "<b>#" + n + "</b>"; }).join("") +
+        (picked.length > 12 ? '<span class="seat__sum-more">외 ' + (picked.length - 12) + "구</span>" : "")
       : '<span class="seat__sum-none">번호를 선택해 주세요</span>';
     var cart = [];
     for (var k in seat.inCart) if (seat.inCart[k]) cart.push(Number(k));
@@ -1192,6 +1235,35 @@
     });
 
     $("modalBody").addEventListener("click", function (e) {
+      /* ── 번호판 전체 선택 · 전체 해제 ── */
+      var allBtn = e.target.closest("[data-seat-all]");
+      if (allBtn) {
+        if (allBtn.disabled) return;
+        var targets = seatAllTargets();
+        if (!targets.length) return;
+        if (seatAllIsOn(targets)) {
+          seat.picked = [];
+          toast("선택을 모두 해제했습니다.", "ok");
+        } else {
+          var allCounts = seatCounts();
+          var inCartN = 0;
+          for (var ck in seat.inCart) if (seat.inCart[ck]) inCartN++;
+          var room = Math.max(0, allCounts.avail - inCartN);
+          var limited = targets.length > room;
+          if (limited) targets = targets.slice(0, room);
+          seat.picked = targets.slice();
+          toast(
+            limited
+              ? targets.length + "구만 선택했습니다. 나머지는 지금 고를 수 없는 번호예요."
+              : targets.length + "구를 모두 선택했습니다.",
+            limited ? "warn" : "ok"
+          );
+        }
+        paintSeatGrid();
+        paintSeatSum();
+        return;
+      }
+
       /* ── 번호 선택판 ── */
       var seatBtn = e.target.closest("[data-seat-num]");
       if (seatBtn) {
