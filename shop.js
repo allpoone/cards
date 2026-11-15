@@ -475,6 +475,43 @@
       .catch(function () { /* 업그레이드 전이면 조용히 0P */ });
   }
 
+  /* ── 도로명주소 검색 (카카오 · 다음 우편번호 API, 무료·회원가입 불필요) ── */
+  function openPostcodeSearch() {
+    var box = $("postcodeBox");
+    var inner = document.querySelector("[data-postcode-inner]");
+    if (!box || !inner) return;
+
+    /* 스크립트 로드 실패 · 오프라인 대비 */
+    if (!window.daum || !window.daum.Postcode) {
+      toast("주소 검색을 불러오지 못했습니다. 인터넷 연결을 확인하거나 직접 입력해 주세요.", "warn");
+      return;
+    }
+
+    new window.daum.Postcode({
+      oncomplete: function (data) {
+        var zip = $("coPostcode");
+        var addr = $("coAddress");
+        if (zip) zip.value = data.zonecode || "";
+        if (addr) addr.value = data.roadAddress || data.jibunAddress || "";
+        var zipErr = document.querySelector('[data-err="coPostcode"]');
+        var addrErr = document.querySelector('[data-err="coAddress"]');
+        if (zipErr) zipErr.hidden = true;
+        if (addrErr) addrErr.hidden = true;
+        box.hidden = true;
+        inner.innerHTML = "";
+        var detail = $("coAddressDetail");
+        if (detail) detail.focus();
+      },
+      onresize: function (size) {
+        box.style.height = size.height + "px";
+      },
+    }).embed(inner);
+
+    inner.innerHTML = "";
+    box.hidden = false;
+    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
   function openCheckout() {
     var s = store();
     if (!s) return;
@@ -562,8 +599,15 @@
       "<legend>배송지</legend>" +
       '<div class="field field--zip">' +
       '<label for="coPostcode">우편번호 <span class="req">*</span></label>' +
+      '<div class="zip-row">' +
       '<input id="coPostcode" name="postcode" type="text" inputmode="numeric" autocomplete="postal-code" maxlength="6" placeholder="00000" value="' + esc(buyer.postcode || "") + '" />' +
+      '<button class="btn btn--ghost" type="button" id="coFindAddr">주소 찾기</button>' +
+      "</div>" +
       '<p class="field__err" data-err="coPostcode" hidden></p>' +
+      "</div>" +
+      '<div class="postcode-embed" id="postcodeBox" hidden>' +
+      '<button class="postcode-embed__close" type="button" data-postcode-close aria-label="주소 검색 닫기">닫기 ×</button>' +
+      '<div class="postcode-embed__inner" data-postcode-inner></div>' +
       "</div>" +
       '<div class="field">' +
       '<label for="coAddress">주소 <span class="req">*</span></label>' +
@@ -595,6 +639,18 @@
       "</div>";
 
     $("checkoutForm").addEventListener("submit", submitOrder);
+
+    /* ── 도로명주소 검색 (카카오 · 다음 우편번호, 임베드 방식) ── */
+    var findBtn = $("coFindAddr");
+    if (findBtn) findBtn.addEventListener("click", openPostcodeSearch);
+    var pcClose = document.querySelector("[data-postcode-close]");
+    if (pcClose) {
+      pcClose.addEventListener("click", function () {
+        var box = $("postcodeBox");
+        if (box) box.hidden = true;
+      });
+    }
+
     closeEl($("cartDrawer"));
     openEl($("checkoutModal"));
 

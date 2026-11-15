@@ -55,62 +55,175 @@
     else if (adminTab === "events") loadEvents();
   }
 
-  /* ── 당첨 라인업 5등급 ───────────────────────────────── */
-  var TIERS = [
-    { key: "dia", label: "다이아" },
-    { key: "gold", label: "골드" },
-    { key: "silver", label: "실버" },
-    { key: "bronze", label: "브론즈" },
-    { key: "last", label: "라스트원상" }
-  ];
+  /* ── 상세 설명 블록 에디터 (products.description 에 문자열로 저장) ── */
+  var DESC_TAG = "APO_BLOCKS_V1::";
 
-  function lineupEditMarkup(rows) {
-    var byTier = {};
-    (rows || []).forEach(function (r) {
-      if (r && r.tier) byTier[r.tier] = r;
-    });
+  function parseDescBlocks(raw) {
+    var s = String(raw == null ? "" : raw);
+    if (s.indexOf(DESC_TAG) !== 0) {
+      return s.trim() ? [{ type: "text", text: s }] : [];
+    }
+    try {
+      var arr = JSON.parse(s.slice(DESC_TAG.length));
+      if (!Array.isArray(arr)) return [];
+      return arr.map(function (b) {
+        if (!b) return null;
+        if (b.type === "photo") return { type: "photo", url: String(b.url || "") };
+        return { type: "text", text: String(b.text || "") };
+      }).filter(Boolean);
+    } catch (e) {
+      return [{ type: "text", text: s }];
+    }
+  }
+
+  function serializeDescBlocks(scope) {
+    var host = scope ? scope.querySelector("[data-desc-editor]") : null;
+    if (!host) return undefined; /* 편집기가 없으면 기존 값을 그대로 둡니다 */
+    var blocks = [];
+    var nodes = host.querySelectorAll("[data-block]");
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].getAttribute("data-block") === "photo") {
+        var u = nodes[i].querySelector("[data-block-url]");
+        var url = String(u ? u.value : "").trim();
+        if (url) blocks.push({ type: "photo", url: url });
+      } else {
+        var t = nodes[i].querySelector("[data-block-text]");
+        var txt = String(t ? t.value : "").trim();
+        if (txt) blocks.push({ type: "text", text: txt });
+      }
+    }
+    return blocks.length ? DESC_TAG + JSON.stringify(blocks) : "";
+  }
+
+  function descTools() {
     return (
-      '<div class="lineup-edit" data-lineup>' +
-      TIERS.map(function (t) {
-        var r = byTier[t.key] || {};
-        return '<div class="lineup-edit__row" data-tier="' + t.key + '">' +
-          '<span class="lineup-edit__rank">' + t.label + "</span>" +
-          '<input type="text" maxlength="60" data-tl-name placeholder="' + t.label +
-          ' 내용 (예: 리자몽 SAR PSA 10)" value="' + esc(r.name || "") + '" />' +
-          '<input type="number" min="0" max="999" inputmode="numeric" data-tl-qty placeholder="0" value="' +
-          (r.qty == null ? "" : Number(r.qty)) + '" aria-label="' + t.label + ' 개수" />' +
-          "</div>";
-      }).join("") +
+      '<div class="desc-block__tools">' +
+      '<button class="btn btn--text btn--xs" type="button" data-desc-move="-1">▲ 위로</button>' +
+      '<button class="btn btn--text btn--xs" type="button" data-desc-move="1">▼ 아래로</button>' +
+      '<button class="btn btn--text btn--xs" type="button" data-desc-del>삭제</button>' +
       "</div>"
     );
   }
 
-  function readLineup(scope) {
-    var out = [];
-    var box = scope ? scope.querySelector("[data-lineup]") : null;
-    if (!box) return out;
-    var rows = box.querySelectorAll("[data-tier]");
-    for (var i = 0; i < rows.length; i++) {
-      var nameEl = rows[i].querySelector("[data-tl-name]");
-      var qtyEl = rows[i].querySelector("[data-tl-qty]");
-      var name = (nameEl ? nameEl.value : "").trim();
-      if (!name) continue;
-      out.push({
-        tier: rows[i].getAttribute("data-tier"),
-        name: name,
-        qty: Math.max(0, Math.floor(Number(qtyEl ? qtyEl.value : 0) || 0))
-      });
+  function descBlockMarkup(block) {
+    if (block && block.type === "photo") {
+      var url = String(block.url || "");
+      return (
+        '<div class="desc-block" data-block="photo">' +
+        '<div class="desc-block__photo">' +
+        (url ? '<img src="' + esc(url) + '" alt="" />' : '<span class="desc-block__empty">아래에서 사진을 골라 주세요</span>') +
+        "</div>" +
+        '<div class="desc-block__pick">' +
+        '<button class="btn btn--ghost btn--xs" type="button" data-block-pick>사진 선택</button>' +
+        '<input type="file" accept="image/*" data-block-file hidden />' +
+        '<input type="text" data-block-url maxlength="500" placeholder="사진 주소 (사진을 고르면 자동 입력)" value="' + esc(url) + '" />' +
+        "</div>" +
+        descTools() +
+        "</div>"
+      );
     }
-    return out;
+    return (
+      '<div class="desc-block" data-block="text">' +
+      '<textarea data-block-text maxlength="2000" rows="3" placeholder="설명 문단을 입력해 주세요">' +
+      esc((block && block.text) || "") +
+      "</textarea>" +
+      descTools() +
+      "</div>"
+    );
   }
 
-  /* 오리파 총 구수 · 번호판 현황 · 라인업 편집 */
+  function descEditorMarkup(description) {
+    var blocks = parseDescBlocks(description);
+    return (
+      '<div class="pf pf--wide desc-editor" data-desc-editor>' +
+      "<span>상세 설명 <em>(글 · 사진 블록 — 손님 상세 화면에 순서대로 보입니다)</em></span>" +
+      '<div class="desc-editor__blocks" data-desc-blocks>' +
+      (blocks.length
+        ? blocks.map(descBlockMarkup).join("")
+        : '<p class="desc-editor__empty" data-desc-empty>블록이 없습니다. [+ 글 추가] 또는 [+ 사진 추가]로 설명을 만들어 주세요.</p>') +
+      "</div>" +
+      '<div class="desc-editor__actions">' +
+      '<button class="btn btn--ghost btn--xs" type="button" data-desc-add="text">+ 글 추가</button>' +
+      '<button class="btn btn--ghost btn--xs" type="button" data-desc-add="photo">+ 사진 추가</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function refreshDescEmpty(editor) {
+    if (!editor) return;
+    var box = editor.querySelector("[data-desc-blocks]");
+    var empty = editor.querySelector("[data-desc-empty]");
+    if (!box || !empty) return;
+    empty.hidden = box.querySelectorAll("[data-block]").length > 0;
+  }
+
+  function addDescBlock(editor, type) {
+    if (!editor) return;
+    var box = editor.querySelector("[data-desc-blocks]");
+    if (!box) return;
+    var wrap = document.createElement("div");
+    wrap.innerHTML = descBlockMarkup(type === "photo" ? { type: "photo", url: "" } : { type: "text", text: "" });
+    var node = wrap.firstChild;
+    box.appendChild(node);
+    refreshDescEmpty(editor);
+    var focusEl = node.querySelector(type === "photo" ? "[data-block-pick]" : "[data-block-text]");
+    if (type === "photo" && focusEl) focusEl.click();
+    else if (focusEl) focusEl.focus();
+  }
+
+  function moveDescBlock(editor, block, dir) {
+    if (!editor || !block || !dir) return;
+    var parent = editor.querySelector("[data-desc-blocks]");
+    if (!parent) return;
+    if (dir < 0 && block.previousElementSibling) parent.insertBefore(block, block.previousElementSibling);
+    if (dir > 0 && block.nextElementSibling) parent.insertBefore(block.nextElementSibling, block);
+  }
+
+  function renderDescPhotoPreview(block) {
+    if (!block) return;
+    var urlInput = block.querySelector("[data-block-url]");
+    var url = String(urlInput ? urlInput.value : "").trim();
+    var pic = block.querySelector(".desc-block__photo");
+    if (pic) {
+      pic.innerHTML = url
+        ? '<img src="' + esc(url) + '" alt="" />'
+        : '<span class="desc-block__empty">아래에서 사진을 골라 주세요</span>';
+    }
+  }
+
+  function uploadDescPhoto(fileInput) {
+    var s = window.APOStore;
+    var block = fileInput.closest("[data-block]");
+    if (!s || !s.uploadProductImage || !block || !fileInput.files || !fileInput.files[0]) return;
+    var file = fileInput.files[0];
+    var prow = fileInput.closest(".prow");
+    var idHint = prow ? prow.getAttribute("data-id") : "new";
+    var urlInput = block.querySelector("[data-block-url]");
+    var pickBtn = block.querySelector("[data-block-pick]");
+    if (pickBtn) { pickBtn.disabled = true; pickBtn.textContent = "올리는 중…"; }
+
+    s.uploadProductImage(file, idHint)
+      .then(function (res) {
+        if (pickBtn) { pickBtn.disabled = false; pickBtn.textContent = "사진 선택"; }
+        if (urlInput) urlInput.value = res.url;
+        renderDescPhotoPreview(block);
+        if (res.warning) toast(res.warning, "warn");
+        else toast("사진을 올렸습니다. [저장]을 누르면 상품에 적용됩니다.", "ok");
+      })
+      .catch(function (err) {
+        if (pickBtn) { pickBtn.disabled = false; pickBtn.textContent = "사진 선택"; }
+        toast((err && err.message) || "사진을 올리지 못했습니다.", "warn");
+      });
+  }
+
+  /* 오리파 총 구수 · 번호판 현황 */
   function oripaBoxMarkup(p) {
     var total = Number(p.totalSlots) || 0;
     var show = p.type === "oripa";
     return (
       '<div class="pf pf--wide oripa-box" data-oripa-box' + (show ? "" : " hidden") + '>' +
-      '<p class="oripa-box__title">오리파 번호판 · 당첨 라인업</p>' +
+      '<p class="oripa-box__title">오리파 번호판</p>' +
       '<div class="oripa-box__row">' +
       '<label class="pf"><span>총 구수 (1~N번)</span>' +
       '<input type="number" inputmode="numeric" min="1" max="500" data-field="total_slots" value="' +
@@ -118,7 +231,6 @@
       '<p class="oripa-box__status" data-seat-status>총 구수를 입력하고 [저장]하면 1~N번 번호판이 만들어집니다. (이미 팔린·입금대기 번호는 유지)</p>' +
       "</div>" +
       '<div class="oripa-seats" data-seat-map hidden></div>' +
-      lineupEditMarkup((p.lineup && p.lineup.length) ? p.lineup : (p.prizes || [])) +
       "</div>"
     );
   }
@@ -497,6 +609,10 @@
 
   function orderActions(o) {
     var no = esc(o.order_no);
+    /* 숨긴 주문 탭: 다시 보이기 (숨김 해제) */
+    var unhide = o.admin_hidden === true
+      ? '<button class="btn btn--gold btn--xs" type="button" data-act="unhide" data-no="' + no + '">다시 보이기</button>'
+      : "";
     /* 실수로 잘못 누르지 않도록 위험한 [취소]는 왼쪽, 주 액션은 오른쪽 끝에 둡니다. */
     if (o.status === "pending_payment") {
       return (
@@ -512,13 +628,15 @@
     }
     if (o.status === "shipped") {
       return (
+        unhide +
         '<span class="aorder__done">발송 처리 완료</span>' +
-        '<button class="btn btn--ghost btn--xs aorder__primary" type="button" data-del-order="' + no + '">목록에서 숨기기</button>'
+        '<button class="btn btn--ghost btn--xs aorder__primary" type="button" data-act="hide" data-no="' + no + '">목록에서 숨기기</button>'
       );
     }
     return (
-      '<span class="aorder__done">취소된 주문 — 재고 복구됨</span>' +
-      '<button class="btn btn--danger btn--xs aorder__primary" type="button" data-del-order="' + no + '">삭제</button>'
+      unhide +
+      '<button class="btn btn--ghost btn--xs" type="button" data-act="hide" data-no="' + no + '">목록에서 숨기기</button>' +
+      '<button class="btn btn--danger btn--xs aorder__primary" type="button" data-del-order="' + no + '">완전 삭제</button>'
     );
   }
 
@@ -543,6 +661,7 @@
       '<span class="aorder__time">' + esc(stamp(o.created_at)) + "</span>" +
       "</div>" +
       statusPill(o.status) +
+      (o.admin_hidden === true ? '<span class="aorder__flag" title="사장님 목록에서만 숨겨진 주문">숨김</span>' : "") +
       "</header>" +
 
       '<ul class="aorder__items">' +
@@ -578,17 +697,20 @@
   }
 
   function renderOrders() {
+    /* 매출 요약은 숨긴 주문까지 전체 주문 기준 — 숨긴 발송완료 매출도 빠지지 않습니다. */
     var counts = { pending_payment: 0, paid: 0, shipped: 0, cancelled: 0 };
     var sums = { pending_payment: 0, paid: 0, shipped: 0, cancelled: 0 };
+    var hiddenCounts = { pending_payment: 0, paid: 0, shipped: 0, cancelled: 0 };
     var revenue = 0;
-    var visible = orders.filter(function (o) { return o.admin_hidden !== true; });
-    visible.forEach(function (o) {
+    orders.forEach(function (o) {
       if (counts[o.status] != null) {
-        counts[o.status]++;
         sums[o.status] += Number(o.total_amount) || 0;
+        if (o.admin_hidden === true) hiddenCounts[o.status]++;
+        else counts[o.status]++;
       }
       if (o.status === "paid" || o.status === "shipped") revenue += Number(o.total_amount) || 0;
     });
+    var hiddenTotal = hiddenCounts.pending_payment + hiddenCounts.paid + hiddenCounts.shipped + hiddenCounts.cancelled;
 
     $("statPending").textContent = counts.pending_payment;
     $("statPaid").textContent = counts.paid;
@@ -597,11 +719,12 @@
     if ($("statPendingAmt")) $("statPendingAmt").textContent = won(sums.pending_payment);
     if ($("statPaidAmt")) $("statPaidAmt").textContent = won(sums.paid);
     if ($("statShippedAmt")) $("statShippedAmt").textContent = won(sums.shipped);
-    $("cntAll").textContent = visible.length;
+    $("cntAll").textContent = counts.pending_payment + counts.paid + counts.shipped + counts.cancelled;
     $("cntPending").textContent = counts.pending_payment;
     $("cntPaid").textContent = counts.paid;
     $("cntShipped").textContent = counts.shipped;
     $("cntCancelled").textContent = counts.cancelled;
+    if ($("cntHidden")) $("cntHidden").textContent = hiddenTotal;
 
     var chips = document.querySelectorAll("#orderFilter .chip");
     for (var i = 0; i < chips.length; i++) {
@@ -609,6 +732,7 @@
     }
 
     var list = orders.filter(function (o) {
+      if (filter === "hidden") return o.admin_hidden === true;
       if (o.admin_hidden === true) return false;
       return filter === "all" ? true : o.status === filter;
     });
@@ -616,35 +740,50 @@
     $("orderList").innerHTML = list.map(orderCard).join("");
     $("orderEmpty").hidden = list.length !== 0;
     if (!list.length && orders.length) {
-      $("orderEmpty").querySelector("p").textContent = "이 상태의 주문이 없습니다.";
+      $("orderEmpty").querySelector("p").textContent = filter === "hidden"
+        ? "숨긴 주문이 없습니다."
+        : "이 상태의 주문이 없습니다.";
     } else if (!list.length) {
       $("orderEmpty").querySelector("p").textContent = "아직 주문이 없습니다.";
     }
   }
 
-  /* ── 주문 상태 변경 ───────────────────────────────────── */
-  /* 취소 주문은 삭제, 발송완료 주문은 사장님 목록에서만 숨김 */
+  /* ── 주문 상태 변경 · 숨김 처리 ──────────────────────── */
+  /* 취소 주문은 삭제, 취소·발송완료 주문은 목록에서만 숨김 */
   function askDeleteOrder(orderNo) {
     var s = window.APOStore;
     if (!s || !s.deleteOrder) {
       toast("주문 정리를 사용할 수 없습니다.", "warn");
       return;
     }
-    var target = null;
-    orders.forEach(function (o) { if (o.order_no === orderNo) target = o; });
-    var isShipped = !!target && target.status === "shipped";
-
-    var ask = isShipped
-      ? "사장님 주문 목록에서만 숨길까요?\n(손님의 주문 내역에는 그대로 남습니다.)"
-      : "취소된 주문을 완전히 삭제할까요?\n삭제하면 되돌릴 수 없고, 주문 안의 상품 기록도 함께 사라집니다.";
+    var ask = "취소된 주문을 완전히 삭제할까요?\n삭제하면 되돌릴 수 없고, 주문 안의 상품 기록도 사라지며 손님의 주문 내역에서도 지워집니다.";
     if (!window.confirm(orderNo + "\n\n" + ask)) return;
 
     s.deleteOrder(orderNo).then(function (res) {
-      var action = (res && res.action) || (isShipped ? "hidden" : "deleted");
+      var action = (res && res.action) || "deleted";
       toast(orderNo + " · " + (action === "hidden" ? "주문 목록에서 숨겼습니다." : "주문을 삭제했습니다."), "ok");
       return loadOrders();
     }).catch(function (err) {
       toast((err && err.message) || "주문을 정리하지 못했습니다.", "warn");
+    });
+  }
+
+  function toggleOrderHidden(orderNo, hidden) {
+    var s = window.APOStore;
+    if (!s || !s.setOrderHidden) {
+      toast("주문 숨기기를 사용할 수 없습니다.", "warn");
+      return;
+    }
+    var ask = hidden
+      ? "사장님 주문 목록에서만 숨길까요?\n(손님의 주문 내역에는 그대로 남습니다.)"
+      : "숨김을 해제해 다시 보이게 할까요?";
+    if (!window.confirm(orderNo + "\n\n" + ask)) return;
+
+    s.setOrderHidden(orderNo, hidden).then(function () {
+      toast(orderNo + " · " + (hidden ? "주문 목록에서 숨겼습니다." : "다시 보이게 했습니다."), "ok");
+      return loadOrders();
+    }).catch(function (err) {
+      toast((err && err.message) || "주문을 처리하지 못했습니다.", "warn");
     });
   }
 
@@ -728,6 +867,17 @@
       '<div class="prow__grid">' +
       '<label class="pf pf--wide"><span>상품명</span>' +
       '<input type="text" data-field="name" maxlength="60" value="' + esc(p.name) + '" /></label>' +
+      '<div class="pf pf--wide"><span>대표 사진 <em>(썸네일/메인)</em></span>' +
+      '<div class="pf__photo">' +
+      '<input type="file" accept="image/*" id="' + esc(fid) + '" data-photo-input="' + esc(p.id) + '" hidden />' +
+      '<label class="btn btn--ghost btn--xs" for="' + esc(fid) + '">사진 선택</label>' +
+      '<input type="text" data-field="image_url" value="' + esc(p.imageUrl || "") + '" placeholder="사진 주소 (사진을 고르면 자동 입력)" />' +
+      '<span class="pf__busy" hidden>올리는 중…</span>' +
+      '</div>' +
+      '<span class="pf__preview" data-preview' + (p.image ? "" : " hidden") + ">" +
+      (p.image ? '<img src="' + esc(p.image) + '" alt="" />' : "") +
+      "</span>" +
+      "</div>" +
       '<label class="pf"><span>종목</span>' +
       '<select data-field="game">' + options(GAME, p.game) + "</select></label>" +
       '<label class="pf"><span>유형</span>' +
@@ -742,20 +892,8 @@
       hiddenFieldMarkup('data-field="is_hidden"', p.hidden === true) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || "") + '" placeholder="예: SV8a / 슈링크 O" /></label>' +
+      descEditorMarkup(p.description || "") +
       oripaBoxMarkup(p) +
-      "</div>" +
-
-      '<div class="pf pf--wide">' +
-      "<span>사진</span>" +
-      '<div class="pf__photo">' +
-      '<input type="file" accept="image/*" id="' + esc(fid) + '" data-photo-input="' + esc(p.id) + '" hidden />' +
-      '<label class="btn btn--ghost btn--xs" for="' + esc(fid) + '">사진 선택</label>' +
-      '<input type="text" data-field="image_url" value="' + esc(p.imageUrl || "") + '" placeholder="사진 주소 (사진을 고르면 자동 입력)" />' +
-      '<span class="pf__busy" hidden>올리는 중…</span>' +
-      "</div>" +
-      '<span class="pf__preview" data-preview' + (p.image ? "" : " hidden") + ">" +
-      (p.image ? '<img src="' + esc(p.image) + '" alt="" />' : "") +
-      "</span>" +
       "</div>" +
 
       '<div class="prow__actions">' +
@@ -768,16 +906,66 @@
     );
   }
 
+  /* ── 상품 관리 필터 (종목 · 유형) ─────────────────────── */
+  var productGameFilter = "all";
+  var productTypeFilter = "all";
+
+  function typeKeyOf(p) {
+    return p.type === "single" ? "etc" : (p.type || "box");
+  }
+
   function renderProducts() {
     var s = window.APOStore;
     if (!s) return;
     var host = $("stockList");
     if (!host) return;
-    var list = s.allProducts ? s.allProducts() : s.products();
+    var all = s.allProducts ? s.allProducts() : s.products();
+
+    /* 건수: 종목·유형 칩은 공개 상품 기준, 숨긴 상품 칩은 숨김 상품 기준 */
+    var gCounts = { pokemon: 0, onepiece: 0, other: 0 };
+    var tCounts = { box: 0, oripa: 0, etc: 0 };
+    var hiddenN = 0;
+    all.forEach(function (p) {
+      if (p.hidden === true) { hiddenN++; return; }
+      if (gCounts[p.game] != null) gCounts[p.game]++;
+      if (tCounts[typeKeyOf(p)] != null) tCounts[typeKeyOf(p)]++;
+    });
+    var visibleN = gCounts.pokemon + gCounts.onepiece + gCounts.other;
+
+    var setN = function (id, n) { var el = $(id); if (el) el.textContent = n; };
+    setN("pgAll", visibleN);
+    setN("pgPokemon", gCounts.pokemon);
+    setN("pgOnepiece", gCounts.onepiece);
+    setN("pgOther", gCounts.other);
+    setN("ptAll", visibleN);
+    setN("ptBox", tCounts.box);
+    setN("ptOripa", tCounts.oripa);
+    setN("ptEtc", tCounts.etc);
+    setN("ptHidden", hiddenN);
+
+    var markChips = function (sel, attr, val) {
+      var chips = document.querySelectorAll(sel + " .chip");
+      for (var i = 0; i < chips.length; i++) {
+        chips[i].setAttribute("aria-pressed", chips[i].getAttribute(attr) === val ? "true" : "false");
+      }
+    };
+    markChips("#productGameFilter", "data-pgame", productGameFilter);
+    markChips("#productTypeFilter", "data-ptype", productTypeFilter);
+
+    var list = all.filter(function (p) {
+      if (productTypeFilter === "hidden") {
+        if (p.hidden !== true) return false;
+      } else {
+        if (p.hidden === true) return false;
+        if (productTypeFilter !== "all" && typeKeyOf(p) !== productTypeFilter) return false;
+      }
+      if (productGameFilter !== "all" && p.game !== productGameFilter) return false;
+      return true;
+    });
 
     host.innerHTML = list.length
       ? list.map(productRow).join("")
-      : '<p class="admin-empty__desc">등록된 상품이 없습니다. [+ 새 상품 추가]로 첫 상품을 등록해 보세요.</p>';
+      : '<p class="admin-empty__desc">이 필터에 맞는 상품이 없습니다.</p>';
   }
 
   /* ── 새 상품 추가 ─────────────────────────────────────── */
@@ -791,6 +979,15 @@
       '<div class="np__grid">' +
       '<label class="pf pf--wide"><span>상품명 <em>*</em></span>' +
       '<input type="text" id="npName" maxlength="60" placeholder="예: 테라스탈 페스티벌 ex 박스" /></label>' +
+      '<div class="pf pf--wide"><span>대표 사진 <em>(썸네일/메인 · 선택)</em></span>' +
+      '<div class="pf__photo">' +
+      '<input type="file" accept="image/*" id="npPhoto" data-photo-input="new" hidden />' +
+      '<label class="btn btn--ghost btn--xs" for="npPhoto">사진 선택</label>' +
+      '<input type="text" id="npImageUrl" placeholder="사진 주소 (사진을 고르면 자동 입력)" />' +
+      '<span class="pf__busy" id="npBusy" hidden>올리는 중…</span>' +
+      '</div>' +
+      '<span class="pf__preview" id="npPreview" hidden><img alt="" /></span>' +
+      "</div>" +
       '<label class="pf"><span>종목</span>' +
       '<select id="npGame">' + options(GAME, "pokemon") + "</select></label>" +
       '<label class="pf"><span>유형</span>' +
@@ -805,17 +1002,8 @@
       hiddenFieldMarkup('id="npHidden" data-field="is_hidden"', false) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 슈링크 O" /></label>' +
+      descEditorMarkup("") +
       oripaBoxMarkup({ type: "box", totalSlots: 0, lineup: [] }) +
-      "</div>" +
-      '<div class="pf pf--wide">' +
-      "<span>사진 <em>(선택)</em></span>" +
-      '<div class="pf__photo">' +
-      '<input type="file" accept="image/*" id="npPhoto" data-photo-input="new" hidden />' +
-      '<label class="btn btn--ghost btn--xs" for="npPhoto">사진 선택</label>' +
-      '<input type="text" id="npImageUrl" placeholder="사진 주소 (사진을 고르면 자동 입력)" />' +
-      '<span class="pf__busy" id="npBusy" hidden>올리는 중…</span>' +
-      "</div>" +
-      '<span class="pf__preview" id="npPreview" hidden><img alt="" /></span>' +
       "</div>" +
       '<div class="np__actions">' +
       '<button class="btn btn--gold btn--sm" type="button" id="npSave">이 상품 추가</button>' +
@@ -890,21 +1078,10 @@
       if (slotsEl) slotsEl.focus();
       return;
     }
-    var lineup = isOripa ? readLineup(host) : [];
+    data.description = serializeDescBlocks(host);
 
     setBusy($("npSave"), true, "저장 중…");
     s.saveProduct(data)
-      .then(function (p) {
-        var pid = p && p.id;
-        if (!isOripa || !s.syncOripaSeats || !pid) return p;
-        return s.syncOripaSeats(pid, slots)
-          .then(function () { return s.saveOripaLineup(pid, lineup); })
-          .then(function () { return p; })
-          .catch(function (err) {
-            toast((err && err.message) || "오리파 번호판·라인업을 저장하지 못했습니다.", "warn");
-            return p;
-          });
-      })
       .then(function (p) {
         setBusy($("npSave"), false);
         closeNewProduct();
@@ -976,7 +1153,7 @@
       return;
     }
 
-    /* 오리파: 총 구수 + 당첨 라인업 */
+    /* 오리파: 총 구수 */
     var isOripa = values.type === "oripa";
     var slotsEl = row.querySelector('[data-field="total_slots"]');
     var slots = slotsEl ? Math.floor(Number(slotsEl.value) || 0) : 0;
@@ -985,12 +1162,7 @@
       if (slotsEl) slotsEl.focus();
       return;
     }
-    var lineup = isOripa ? readLineup(row) : [];
-
-    var btn = row.querySelector("[data-product-save]");
-    setBusy(btn, true, "저장 중…");
-
-    s.saveProduct({
+    var payload = {
       id: id,
       name: values.name,
       type: values.type || undefined,
@@ -1003,18 +1175,14 @@
       earn_points: values.earn_points,
       point_rate: values.point_rate,
       is_hidden: values.is_hidden,
-    })
-      .then(function (p) {
-        var pid = (p && p.id) || id;
-        if (!isOripa || !s.syncOripaSeats) return p;
-        return s.syncOripaSeats(pid, slots)
-          .then(function () { return s.saveOripaLineup(pid, lineup); })
-          .then(function () { return p; })
-          .catch(function (err) {
-            toast((err && err.message) || "오리파 번호판·라인업을 저장하지 못했습니다.", "warn");
-            return p;
-          });
-      })
+    };
+    var desc = serializeDescBlocks(row);
+    if (desc !== undefined) payload.description = desc;
+
+    var btn = row.querySelector("[data-product-save]");
+    setBusy(btn, true, "저장 중…");
+
+    s.saveProduct(payload)
       .then(function (p) {
         setBusy(btn, false);
         renderProducts();
@@ -1547,7 +1715,61 @@
       }
       var btn = e.target.closest("[data-act]");
       if (!btn) return;
-      changeStatus(btn.getAttribute("data-no"), btn.getAttribute("data-act"));
+      var act = btn.getAttribute("data-act");
+      var no = btn.getAttribute("data-no");
+      if (act === "hide") { toggleOrderHidden(no, true); return; }
+      if (act === "unhide") { toggleOrderHidden(no, false); return; }
+      changeStatus(no, act);
+    });
+
+    /* ── 상품 필터 칩 (종목 · 유형) ── */
+    $("productGameFilter").addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-pgame]");
+      if (!chip) return;
+      productGameFilter = chip.getAttribute("data-pgame") || "all";
+      renderProducts();
+    });
+    $("productTypeFilter").addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-ptype]");
+      if (!chip) return;
+      productTypeFilter = chip.getAttribute("data-ptype") || "all";
+      renderProducts();
+    });
+
+    /* ── 상세 설명 블록 에디터 (추가 · 이동 · 삭제 · 사진) ── */
+    document.addEventListener("click", function (e) {
+      var add = e.target.closest("[data-desc-add]");
+      if (add) {
+        addDescBlock(add.closest("[data-desc-editor]"), add.getAttribute("data-desc-add"));
+        return;
+      }
+      var editor = e.target.closest("[data-desc-editor]");
+      if (!editor) return;
+      var pick = e.target.closest("[data-block-pick]");
+      if (pick) {
+        var blk = pick.closest("[data-block]");
+        var fileIn = blk ? blk.querySelector("[data-block-file]") : null;
+        if (fileIn) fileIn.click();
+        return;
+      }
+      var move = e.target.closest("[data-desc-move]");
+      if (move) {
+        moveDescBlock(editor, move.closest("[data-block]"), Number(move.getAttribute("data-desc-move")) || 0);
+        return;
+      }
+      if (e.target.closest("[data-desc-del]")) {
+        var delBlock = e.target.closest("[data-block]");
+        if (delBlock && delBlock.parentNode) {
+          delBlock.parentNode.removeChild(delBlock);
+          refreshDescEmpty(editor);
+        }
+      }
+    });
+    document.addEventListener("change", function (e) {
+      var fileIn = e.target.closest("[data-block-file]");
+      if (fileIn) { uploadDescPhoto(fileIn); return; }
+      var urlIn = e.target.closest("[data-block-url]");
+      if (urlIn) renderDescPhotoPreview(urlIn.closest("[data-block]"));
     });
 
     $("stockList").addEventListener("keydown", function (e) {

@@ -1525,8 +1525,7 @@ begin
     from (
       select o.id, o.created_at
         from public.orders o
-       where coalesce(o.admin_hidden, false) = false
-         and (p_status is null or p_status = '' or o.status = p_status)
+       where (p_status is null or p_status = '' or o.status = p_status)
        order by o.created_at desc
        limit 300
     ) o;
@@ -1578,6 +1577,84 @@ $$;
 
 comment on function public.admin_delete_order(text, text) is
   '관리자용 주문 정리. 취소(cancelled) 주문은 완전히 삭제하고, 발송완료(shipped) 주문은 admin_hidden = true 로 사장님 목록에서만 숨깁니다.';
+
+-- 사장님: 주문 숨김/해제 — 취소·발송완료 주문을 사장님 목록에서만 감추거나 다시 보이게 합니다.
+create or replace function public.admin_set_order_hidden(
+  p_order_no text,
+  p_hidden   boolean default true,
+  p_pin      text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_order public.orders;
+begin
+  perform private.assert_admin(p_pin);
+
+  select *
+    into v_order
+    from public.orders
+   where order_no = btrim(p_order_no)
+     for update;
+
+  if not found then
+    raise exception '주문을 찾을 수 없습니다: %', p_order_no
+      using errcode = '22023';
+  end if;
+
+  if v_order.status not in ('cancelled', 'shipped') then
+    raise exception '취소되거나 발송 완료된 주문만 숨길 수 있습니다.'
+      using errcode = '22023';
+  end if;
+
+  update public.orders
+     set admin_hidden = coalesce(p_hidden, true),
+         updated_at   = now()
+   where id = v_order.id;
+
+  return jsonb_build_object(
+    'order_no',     v_order.order_no,
+    'admin_hidden', coalesce(p_hidden, true)
+  );
+end;
+$$;
+
+-- 사장님: 상품 상세 설명(글·사진 블록 JSON 문자열) 저장
+create or replace function public.admin_set_product_description(
+  p_product_id  text,
+  p_description text default null,
+  p_pin         text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_row public.products;
+begin
+  perform private.assert_admin(p_pin);
+
+  update public.products
+     set description = nullif(btrim(coalesce(p_description, '')), ''),
+         updated_at  = now()
+   where id = btrim(p_product_id)
+  returning * into v_row;
+
+  if not found then
+    raise exception '상품을 찾을 수 없습니다: %', p_product_id
+      using errcode = '22023';
+  end if;
+
+  return jsonb_build_object('id', v_row.id, 'description', v_row.description);
+end;
+$$;
+
+alter table public.products
+  add column if not exists description text;
 
 
 
@@ -1810,6 +1887,8 @@ grant execute on function public.admin_update_product(text, text, integer, integ
 grant execute on function public.admin_delete_product(text, text)          to anon, authenticated;
 grant execute on function public.admin_list_orders(text, text)            to anon, authenticated;
 grant execute on function public.admin_delete_order(text, text)            to anon, authenticated;
+grant execute on function public.admin_set_order_hidden(text, boolean, text) to anon, authenticated;
+grant execute on function public.admin_set_product_description(text, text, text) to anon, authenticated;
 grant execute on function public.admin_list_member_points(text, integer, text) to anon, authenticated;
 grant execute on function public.admin_adjust_points(uuid, integer, text, text) to anon, authenticated;
 grant execute on function public.check_phone_available(text)             to anon, authenticated;

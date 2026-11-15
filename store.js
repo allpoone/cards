@@ -230,6 +230,7 @@
       if (row.subtitle) { out.series = row.subtitle; out.subtitle = row.subtitle; }
       if (row.image_url) out.image = row.image_url;
       out.imageUrl = row.image_url || "";
+      out.description = row.description || "";
       out.earnPoints = row.earn_points !== false;
       out.totalSlots = row.total_slots || 0;
       if (row.lineup && row.lineup.length) out.lineup = row.lineup;
@@ -853,7 +854,21 @@
           return dbRows.length;
         });
       }
-      return attempt(0);
+      return attempt(0).then(function () { return fetchDescriptions(c); });
+    });
+  }
+
+  /* 상세 설명(글·사진 블록) 칸 — description 열이 없는 DB에서는 조용히 건너뜁니다. */
+  function fetchDescriptions(c) {
+    return c.from("products").select("id, description").then(function (res) {
+      if (res.error || !Array.isArray(res.data)) return;
+      var map = {};
+      res.data.forEach(function (r) {
+        if (r && r.id) map[r.id] = r.description || "";
+      });
+      dbRows.forEach(function (row) {
+        row.description = map[row.id] || "";
+      });
     });
   }
 
@@ -912,6 +927,7 @@
       order_no: o.order_no,
       status: o.status,
       mode: "db",
+      admin_hidden: o.admin_hidden === true,
       user_id: o.user_id || null,
       is_member: o.user_id ? true : !!o.is_member,
       created_at: o.created_at,
@@ -1148,6 +1164,7 @@
     var stock = clampInt(data.stock, 0, 99999);
     var subtitle = String(data.subtitle == null ? (prev.subtitle || "") : data.subtitle).trim();
     var image = String(data.image_url == null ? (prev.image_url || "") : data.image_url).trim();
+    var description = data.description == null ? (prev.description || "") : String(data.description);
     var earnPoints = data.earn_points === undefined ? (prev.earn_points !== false) : !!data.earn_points;
     var prevHidden = prev.is_hidden === undefined
       ? (productState[id] ? productState[id].is_hidden : undefined)
@@ -1182,6 +1199,7 @@
         status: status,
         subtitle: subtitle,
         image_url: image,
+        description: description,
         earn_points: earnPoints,
         point_rate: pointRate,
         is_hidden: hidden,
@@ -1295,14 +1313,22 @@
 
     function done(res) {
       var row = res || {};
-      return fetchDbProducts().then(function () {
-        emit("products");
-        return getProduct(row.id || id);
+      var pid = row.id || id;
+      /* 상세 설명(블록)은 같은 products 표의 description 칸에 별도 RPC로 저장합니다. */
+      var descJob = (data.description !== undefined && pid)
+        ? setProductDescription(pid, String(data.description || ""))
+        : Promise.resolve(null);
+      return descJob.then(function () {
+        return fetchDbProducts().then(function () {
+          emit("products");
+          return getProduct(pid);
+        });
       });
     }
 
     /* 이름·가격·재고만 바뀌었으면 좁은 RPC(admin_update_product)를 씁니다. */
-    var onlyBasic = prev &&
+    var onlyBasic = data.description === undefined &&
+      prev &&
       payload.p_type === prev.type && payload.p_game === prev.game &&
       (payload.p_edition || "") === (prev.edition || "") &&
       payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url &&
@@ -1391,6 +1417,83 @@
         if (err && err.code === "22023") throw err;
         throw err;
       });
+  }
+
+  /* ── 관리자: 주문 숨김 / 다시 보이기 (취소 · 발송완료 주문만) ── */
+  function setOrderHidden(orderNo, hidden) {
+    var no = String(orderNo == null ? "" : orderNo).trim();
+    if (!no) return Promise.reject(new Error("주문번호가 없습니다."));
+
+    if (mode !== "db") {
+      var list = readOrders();
+      var touched = null;
+      list.forEach(function (o) {
+        if (o.order_no === no) {
+          o.admin_hidden = hidden === true;
+          touched = o;
+        }
+      });
+      if (!touched) {
+        var e0 = new Error("주문을 찾을 수 없습니다.");
+        e0.code = "NOT_FOUND";
+        return Promise.reject(e0);
+      }
+      saveOrders(list);
+      return Promise.resolve({ order_no: no, admin_hidden: hidden === true });
+    }
+
+    /* p_pin 은 null — 서버가 JWT(app_metadata.role = 'admin')로 관리자를 확인합니다. */
+    return rpc("admin_set_order_hidden", { p_order_no: no, p_hidden: hidden === true, p_pin: null })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        emit("orders");
+        return raw || { order_no: no, admin_hidden: hidden === true };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) {
+          var e1 = new Error(
+            "주문 숨기기는 DB 패치가 필요합니다. " +
+            "Supabase SQL Editor 에서 supabase-patch-hide-orders.sql 을 한 번 실행해 주세요."
+          );
+          e1.code = "NEED_UPGRADE";
+          throw e1;
+        }
+        throw err;
+      });
+  }
+
+  /* ── 관리자: 상품 상세 설명(글·사진 블록) 저장 ────────── */
+  function setProductDescription(pid, description) {
+    var id = String(pid == null ? "" : pid).trim();
+    if (!id) return Promise.reject(new Error("상품 ID가 없습니다."));
+
+    if (mode !== "db") {
+      var row = extraById[id];
+      if (row) {
+        row.description = String(description || "");
+        saveProductState();
+        emit("products");
+      }
+      return Promise.resolve({ id: id });
+    }
+
+    return rpc("admin_set_product_description", {
+      p_product_id: id,
+      p_description: String(description || ""),
+      p_pin: null,
+    }).then(function () {
+      return { id: id };
+    }).catch(function (err) {
+      if (rpcMissing(err)) {
+        var e1 = new Error(
+          "상세 설명(블록) 저장은 DB 패치가 필요합니다. " +
+          "Supabase SQL Editor 에서 supabase-patch-hide-orders.sql 을 한 번 실행해 주세요."
+        );
+        e1.code = "NEED_UPGRADE";
+        throw e1;
+      }
+      throw err;
+    });
   }
 
   /* ── 관리자: 사진 올리기 (Supabase Storage) ──────────── */
@@ -2485,8 +2588,10 @@
     setOrderStatus: setOrderStatus,
     setStock: setStock,
     saveProduct: saveProduct,
+    setProductDescription: setProductDescription,
     deleteProduct: deleteProduct,
     deleteOrder: deleteOrder,
+    setOrderHidden: setOrderHidden,
     uploadProductImage: uploadProductImage,
     listDepositEvents: listDepositEvents,
     dbColumns: function () { return dbColumns; },

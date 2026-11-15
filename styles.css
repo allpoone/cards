@@ -255,6 +255,20 @@ button.badge[aria-pressed="true"]::after {
 }
 
 /* ── 히어로 ─────────────────────────────────────────────── */
+.hero__logo {
+  display: block;
+  width: clamp(112px, 28vw, 128px);
+  height: auto;
+  margin: 0 auto 18px;
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 1px rgba(229, 193, 88, 0.28),
+    0 10px 34px -10px rgba(229, 193, 88, 0.38),
+    0 22px 50px -18px rgba(0, 0, 0, 0.85);
+}
+@media (min-width: 700px) {
+  .hero__logo { width: 140px; margin-bottom: 22px; }
+}
 .hero {
   padding-top: clamp(24px, 5vw, 52px);
   padding-bottom: clamp(16px, 3vw, 28px);
@@ -277,15 +291,29 @@ button.badge[aria-pressed="true"]::after {
   color: var(--gold);
   opacity: 0.95;
 }
-/* 둘째 줄(영문)은 한글 바로 아래에 작게 붙입니다. */
+/* 첫 줄(한글)은 다이아몬드 하늘빛 */
+.hero__eyebrow span {
+  color: #a8d8ff;
+}
+/* 둘째 줄(영문)은 한글 바로 아래에 작게 붙습니다. */
 .hero__eyebrow span:nth-child(n + 4) {
   font-size: 0.68em;
   font-weight: 700;
   letter-spacing: 0.1em;
-  color: var(--gold-soft);
-  opacity: 0.78;
+  color: #6f7787;
+  opacity: 0.92;
   white-space: nowrap;
 }
+/* ALL PO ONE 강조 — ALL 금 · Po 은 · One 동 */
+.hero__eyebrow span.hero__eb-all {
+  color: #e5c158;
+  font-weight: 700;
+}
+.hero__eyebrow span b {
+  font-weight: 700;
+}
+.hero__eyebrow span .hero__eb-po { color: #e5ecf6; }
+.hero__eyebrow span .hero__eb-one { color: #d98a5b; }
 .hero__title {
   margin: 0 0 18px;
   font-size: clamp(1.9rem, 6.4vw, 3.35rem);
@@ -1590,7 +1618,62 @@ body.modal-open { overflow: hidden; }
   cursor: not-allowed;
 }
 .field input.is-locked:focus { border-color: var(--line-strong); box-shadow: none; }
-.field--zip { max-width: 180px; }
+.field--zip { max-width: 220px; }
+.zip-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.zip-row input { flex: 1 1 auto; min-width: 0; }
+.zip-row .btn { flex: 0 0 auto; white-space: nowrap; }
+
+/* ── 주소 검색 임베드 (다음 우편번호) ─────────────────── */
+.postcode-embed {
+  position: relative;
+  margin: 4px 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.postcode-embed__inner { min-height: 240px; }
+.postcode-embed__inner iframe { display: block; width: 100%; border: 0; }
+.postcode-embed__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(7, 8, 11, 0.85);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+/* ── 상세 설명 블록 (글 · 사진) ──────────────────────── */
+.detail__desc {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 16px;
+}
+.detail__desc-p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  line-height: 1.75;
+  word-break: keep-all;
+  white-space: pre-line;
+}
+.detail__desc-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
 .field__err { margin: 5px 0 0; font-size: 0.72rem; color: #ff9c93; }
 .field__hint { margin: 5px 0 0; font-size: 0.7rem; color: var(--text-faint); line-height: 1.5; }
 

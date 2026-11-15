@@ -18,7 +18,8 @@
 <link rel="apple-touch-icon" href="logo.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160435" />
+<link rel="stylesheet" href="styles.css?v=202611160501" />
+<script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" defer></script>
 </head>
 <body class="auth-pending">
 <a class="skip-link" href="#products">상품 목록으로 건너뛰기</a>
@@ -89,9 +90,10 @@
 <main id="top">
   <!-- ── 히어로 ───────────────────────────────────────────── -->
   <section class="hero wrap">
+    <img src="logo.png" alt="ALL PO ONE 로고" class="hero__logo" width="140" height="140" decoding="async" />
     <p class="hero__eyebrow" aria-label="모든 포켓몬 원피스 · ALL Pokemon OnePiece">
       <span>모든</span><span>포켓몬</span><span>원피스</span>
-      <span>ALL</span><span>Pokemon</span><span>OnePiece</span>
+      <span class="hero__eb-all">ALL</span><span><b class="hero__eb-po">Po</b>kemon</span><span><b class="hero__eb-one">One</b>Piece</span>
     </p>
     <h1 class="hero__title">
       뽑고, 열고, 바로 확인하는<br />
@@ -247,9 +249,9 @@
 <!-- ── 토스트 ─────────────────────────────────────────────── -->
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160435"></script>
-<script src="store.js?v=202611160435"></script>
-<script src="app.js?v=202611160435"></script>
-<script src="shop.js?v=202611160435"></script>
+<script src="cards.js?v=202611160501"></script>
+<script src="store.js?v=202611160501"></script>
+<script src="app.js?v=202611160501"></script>
+<script src="shop.js?v=202611160501"></script>
 </body>
 </html>

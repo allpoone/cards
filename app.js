@@ -90,6 +90,40 @@
     );
   }
 
+  /* 상세 설명 (글 · 사진 블록 — 사장님이 순서대로 저장한 값) */
+  function parseDescBlocks(raw) {
+    var TAG = "APO_BLOCKS_V1::";
+    var s = String(raw == null ? "" : raw);
+    if (s.indexOf(TAG) !== 0) {
+      return s.trim() ? [{ type: "text", text: s }] : [];
+    }
+    try {
+      var arr = JSON.parse(s.slice(TAG.length));
+      if (!Array.isArray(arr)) return [];
+      return arr.map(function (b) {
+        if (!b) return null;
+        if (b.type === "photo") return { type: "photo", url: String(b.url || "") };
+        return { type: "text", text: String(b.text || "") };
+      }).filter(Boolean);
+    } catch (e) {
+      return [{ type: "text", text: s }];
+    }
+  }
+
+  function descBlocksMarkup(raw) {
+    var blocks = parseDescBlocks(raw);
+    if (!blocks.length) return "";
+    var html = "";
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i].type === "photo") {
+        if (blocks[i].url) html += '<img class="detail__desc-img" src="' + esc(blocks[i].url) + '" alt="" loading="lazy" />';
+      } else {
+        html += '<p class="detail__desc-p">' + esc(blocks[i].text) + "</p>";
+      }
+    }
+    return html ? '<div class="detail__desc">' + html + "</div>" : "";
+  }
+
   /* 판본(edition) 줄은 [미개봉 박스]를 골랐을 때만 보입니다. */
   var filterDefs = {
     game: [
@@ -493,7 +527,6 @@
     }
 
     var lineup = "";
-    if (isOripa) lineup = lineupMarkup(lineupOf(p), p.lineupNote);
 
     return (
       '<div class="detail">' +
@@ -515,7 +548,7 @@
       (p.nameEn ? '<p class="detail__name-en">' + esc(p.nameEn) + "</p>" : "") +
       '<div class="detail__price"><strong>' + won(p.price) + "</strong><span>/ " + esc(unitWord(p)) + " · KRW</span></div>" +
       "<dl>" + rows.map(function (r) { return "<dt>" + esc(r[0]) + "</dt><dd>" + r[1] + "</dd>"; }).join("") + "</dl>" +
-      lineup +
+      descBlocksMarkup(p.description) +
       (isOripa ? seatSectionMarkup(p) : "") +
       (p.note ? '<p class="detail__note">' + esc(p.note) + "</p>" : "") +
       (p.soldOut
@@ -689,15 +722,6 @@
     (board.seats || []).forEach(function (x) {
       if (x && x.n) seat.status[x.n] = x.s || "available";
     });
-
-    /* 사장님이 저장한 라인업이 있으면 그것으로 다시 그립니다. */
-    if (board.lineup && board.lineup.length) {
-      var html = lineupMarkup(lineupOf({ lineup: board.lineup }), p.lineupNote);
-      var host = document.querySelector("#modalBody .lineup");
-      var secEl = document.querySelector("[data-seat]");
-      if (host) host.outerHTML = html;
-      else if (secEl && secEl.parentNode) secEl.insertAdjacentHTML("beforebegin", html);
-    }
 
     if (loading) loading.hidden = true;
     if (stepper) stepper.hidden = true;
