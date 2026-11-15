@@ -7,6 +7,12 @@
      실제 Supabase DB(place_order / update_order_status RPC)를 씁니다.
    · 비어 있으면 "DB 연동 전 테스트 모드"로 이 브라우저(localStorage)에
      똑같이 주문 생성 · 재고 차감 · 주문 저장을 합니다.
+
+   ── 관리자 인증 ─────────────────────────────────────────
+   · DB 모드: 사장님 페이지는 Supabase Auth(이메일 + 비밀번호)로만 열립니다.
+     로그인한 계정의 app_metadata.role === 'admin' 만 관리자로 인정합니다.
+     (공개 코드에는 어떤 비밀번호·PIN 도 두지 않습니다.)
+   · 테스트 모드: 화면 잠금만 하고, 같은 브라우저 안에서만 열립니다.
    ============================================================ */
 
 (function () {
@@ -450,9 +456,19 @@
   }
 
   function makeClient() {
-    return window.supabase.createClient(dbUrl, dbKey, {
+    var client = window.supabase.createClient(dbUrl, dbKey, {
       global: { fetch: dbFetch },
     });
+    /* 세션 만료·갱신·로그아웃을 캐시에 반영 (관리자 로그인 상태 유지) */
+    try {
+      client.auth.onAuthStateChange(function (event, session) {
+        if (event === "SIGNED_OUT") rememberSession(null);
+        else if (session) rememberSession(session);
+      });
+    } catch (e) {
+      /* onAuthStateChange 를 지원하지 않는 버전이면 무시 */
+    }
+    return client;
   }
 
   function connectDb() {
@@ -622,12 +638,7 @@
   /* ── 주문 상태 변경 (관리자) ──────────────────────────── */
   var STATUS_ORDER = ["pending_payment", "paid", "shipped", "cancelled"];
 
-  function localSetStatus(orderNo, status, pin) {
-    if (!checkPin(pin)) {
-      var e = new Error("관리자 PIN이 올바르지 않습니다.");
-      e.code = "BAD_PIN";
-      throw e;
-    }
+  function localSetStatus(orderNo, status) {
     var orders = readOrders();
     var target = null;
     for (var i = 0; i < orders.length; i++) {
@@ -675,18 +686,19 @@
     return target;
   }
 
-  function setOrderStatus(orderNo, status, pin) {
+  function setOrderStatus(orderNo, status) {
     if (mode !== "db") {
       try {
-        return Promise.resolve(localSetStatus(orderNo, status, pin));
+        return Promise.resolve(localSetStatus(orderNo, status));
       } catch (err) {
         return Promise.reject(err);
       }
     }
+    /* p_pin 은 null — 서버가 JWT(app_metadata.role = 'admin')로 관리자를 확인합니다. */
     return rpc("update_order_status", {
       p_order_no: orderNo,
       p_status: status,
-      p_pin: String(pin || ""),
+      p_pin: null,
     }).then(function (data) {
       var raw = Array.isArray(data) ? data[0] : data;
       var order = normalizeDbOrder(raw && raw.order ? raw.order : raw);
@@ -699,25 +711,25 @@
   }
 
   /* ── 관리자: 주문 목록 ────────────────────────────────── */
-  function listOrders(pin) {
+  function listOrders() {
     if (mode !== "db") {
-      if (!checkPin(pin)) return Promise.reject(new Error("관리자 PIN이 올바르지 않습니다."));
+      if (!demoUnlocked()) return Promise.reject(needLogin());
       return Promise.resolve(readOrders().slice());
     }
-    return rpc("admin_list_orders", { p_pin: String(pin || "") }).then(function (data) {
+    return rpc("admin_list_orders", { p_pin: null }).then(function (data) {
       var list = Array.isArray(data) ? data : (data ? [data] : []);
       return list.map(normalizeDbOrder);
     });
   }
 
   /* ── 관리자: 자동 입금 확인 로그 ─────────────────────── */
-  function listDepositEvents(pin, limit) {
+  function listDepositEvents(limit) {
     if (mode !== "db") {
-      if (!checkPin(pin)) return Promise.reject(new Error("관리자 PIN이 올바르지 않습니다."));
+      if (!demoUnlocked()) return Promise.reject(needLogin());
       return Promise.resolve([]);
     }
     return rpc("admin_deposit_events", {
-      p_pin: String(pin || ""),
+      p_pin: null,
       p_limit: clampInt(limit || 30, 1, 100),
     }).then(function (data) {
       return Array.isArray(data) ? data : (data ? [data] : []);
@@ -725,12 +737,7 @@
   }
 
   /* ── 관리자: 재고 수정 ────────────────────────────────── */
-  function localSetStock(id, stock, pin) {
-    if (!checkPin(pin)) {
-      var e = new Error("관리자 PIN이 올바르지 않습니다.");
-      e.code = "BAD_PIN";
-      throw e;
-    }
+  function localSetStock(id, stock) {
     var base = findBase(id);
     if (!base) {
       var e2 = new Error("상품을 찾을 수 없습니다.");
@@ -748,16 +755,16 @@
     return getProduct(id);
   }
 
-  function setStock(id, stock, pin) {
+  function setStock(id, stock) {
     if (mode !== "db") {
       try {
-        return Promise.resolve(localSetStock(id, stock, pin));
+        return Promise.resolve(localSetStock(id, stock));
       } catch (err) {
         return Promise.reject(err);
       }
     }
     return rpc("admin_set_stock", {
-      p_pin: String(pin || ""),
+      p_pin: null,
       p_product_id: id,
       p_stock: clampInt(stock, 0, 9999),
     }).then(function () {
@@ -768,24 +775,140 @@
     });
   }
 
-  /* ── 관리자 PIN ───────────────────────────────────────── */
-  function adminPin() {
-    var pin = String(cfg.adminPin == null ? "" : cfg.adminPin).trim();
-    return pin || "0000";
+  /* ============================================================
+     관리자 인증 — Supabase Auth (이메일 + 비밀번호)
+     ------------------------------------------------------------
+     · DB 모드: supabase.auth.signInWithPassword / signOut
+       로그인한 계정의 app_metadata.role === 'admin' 만 관리자로 인정합니다.
+     · 테스트 모드: 화면 잠금만(같은 브라우저 로컬 데이터). PIN 은 쓰지 않습니다.
+     ============================================================ */
+
+  var sessionCache = null;      // 현재 로그인 세션 (없으면 null)
+  var sessionPromise = null;    // getSession() 결과 캐시
+
+  function needLogin(msg) {
+    var e = new Error(msg || "관리자 계정으로 로그인해 주세요.");
+    e.code = "NOT_ADMIN";
+    return e;
   }
 
-  function checkPin(pin) {
-    return String(pin == null ? "" : pin).trim() === adminPin();
+  function rememberSession(session) {
+    sessionCache = session || null;
+    sessionPromise = Promise.resolve(sessionCache);
+    return sessionCache;
   }
 
-  function unlock(pin) {
-    if (!checkPin(pin)) return false;
+  function sessionUser(session) {
+    return (session && session.user) || null;
+  }
+
+  /* app_metadata 는 서버(대시보드·SQL)만 바꿀 수 있어 위조할 수 없습니다. */
+  function isAdminUser(user) {
+    var meta = user && user.app_metadata;
+    return !!(meta && meta.role === "admin");
+  }
+
+  function loadSession() {
+    if (mode !== "db") return Promise.resolve(null);
+    if (sessionPromise) return sessionPromise;
+    sessionPromise = connectDb()
+      .then(function (c) { return c.auth.getSession(); })
+      .then(function (res) {
+        return rememberSession(res && res.data ? res.data.session : null);
+      })
+      .catch(function (err) {
+        if (window.console && console.warn) console.warn("[ALL PO ONE] 세션 확인 실패:", err);
+        sessionCache = null;
+        sessionPromise = null;      // 다음 호출에서 다시 시도
+        return null;
+      });
+    return sessionPromise;
+  }
+
+  function currentUser() {
+    return sessionUser(sessionCache);
+  }
+
+  function isAdminSession() {
+    return isAdminUser(currentUser());
+  }
+
+  /* 로그인 오류를 화면에 보여줄 한국어 문장으로 바꿉니다. */
+  function authMessage(err) {
+    var raw = String((err && (err.message || err.msg || err.error_description)) || "");
+    var code = String((err && err.code) || "");
+    var status = Number(err && err.status) || 0;
+    if (/email not confirmed/i.test(raw)) {
+      return "이메일 인증이 완료되지 않은 계정입니다. 받은 메일의 인증 링크를 먼저 눌러 주세요.";
+    }
+    if (/invalid login credentials|invalid_credentials|invalid_grant/i.test(raw) ||
+        code === "invalid_credentials") {
+      return "이메일 또는 비밀번호가 맞지 않습니다.";
+    }
+    if (/too many requests|rate limit|over_email_send_rate_limit/i.test(raw) || status === 429) {
+      return "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+    }
+    if (/user not found/i.test(raw)) {
+      return "등록되지 않은 관리자 이메일입니다.";
+    }
+    if (/failed to fetch|network/i.test(raw)) {
+      return "서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.";
+    }
+    return raw || "로그인하지 못했습니다.";
+  }
+
+  function signIn(email, password) {
+    var mail = String(email == null ? "" : email).trim();
+    var pw = String(password == null ? "" : password);
+    if (!mail) return Promise.reject(new Error("관리자 이메일을 입력해 주세요."));
+    if (!pw) return Promise.reject(new Error("비밀번호를 입력해 주세요."));
+
+    if (mode !== "db") {
+      demoUnlock();
+      return Promise.resolve({ demo: true, user: null, isAdmin: true });
+    }
+
+    return connectDb()
+      .then(function (c) {
+        return c.auth.signInWithPassword({ email: mail, password: pw });
+      })
+      .then(function (res) {
+        if (res && res.error) {
+          var e = new Error(authMessage(res.error));
+          e.code = res.error.code || res.error.status || "AUTH";
+          throw e;
+        }
+        var session = (res && res.data && res.data.session) || null;
+        var user = (res && res.data && res.data.user) || sessionUser(session);
+        rememberSession(session);
+        return { session: session, user: user, isAdmin: isAdminUser(user) };
+      });
+  }
+
+  function signOut() {
+    if (mode !== "db") {
+      lock();
+      return Promise.resolve();
+    }
+    return connectDb()
+      .then(function (c) { return c.auth.signOut(); })
+      .catch(function (err) {
+        if (window.console && console.warn) console.warn("[ALL PO ONE] 로그아웃 실패:", err);
+      })
+      .then(function () {
+        rememberSession(null);
+        lock();
+      });
+  }
+
+  /* 테스트 모드 화면 잠금 (비밀번호 없음 — 같은 브라우저 로컬 데이터 전용) */
+  function demoUnlocked() {
+    try { return sessionStorage.getItem(LS_ADMIN) === "1"; } catch (e) { return false; }
+  }
+
+  function demoUnlock() {
     try { sessionStorage.setItem(LS_ADMIN, "1"); } catch (e) { /* 무시 */ }
     return true;
-  }
-
-  function isUnlocked() {
-    try { return sessionStorage.getItem(LS_ADMIN) === "1"; } catch (e) { return false; }
   }
 
   function lock() {
@@ -866,10 +989,17 @@
     setStock: setStock,
     listDepositEvents: listDepositEvents,
 
-    adminPin: adminPin,
-    checkPin: checkPin,
-    unlock: unlock,
-    isUnlocked: isUnlocked,
+    /* 관리자 인증 (Supabase Auth) */
+    signIn: signIn,
+    signOut: signOut,
+    loadSession: loadSession,
+    currentUser: currentUser,
+    isAdminUser: isAdminUser,
+    isAdminSession: isAdminSession,
+
+    /* 테스트 모드 화면 잠금 */
+    unlock: demoUnlock,
+    isUnlocked: demoUnlocked,
     lock: lock,
 
     dateBlock: ymdSeoul,

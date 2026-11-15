@@ -2,7 +2,7 @@
    ALL PO ONE(올포원) — 설정 파일
    ------------------------------------------------------------
    사이트에서 바꾸고 싶은 내용은 전부 이 파일에서 바꾸면 됩니다.
-   1) SITE_CONFIG : 샵 이름, 오픈톡·유튜브 링크, 입금 계좌, 관리자 PIN, 거래 안내
+   1) SITE_CONFIG : 샵 이름, 오픈톡·유튜브 링크, 입금 계좌, Supabase 설정, 거래 안내
    2) PRODUCTS    : 판매 상품 목록 (미개봉 박스 / 오리파 / 싱글·기타) + 재고(stock)
    두 곳만 고치면 index.html 은 건드릴 필요가 없습니다.
 
@@ -60,11 +60,11 @@ const SITE_CONFIG = {
   supabaseUrl: "https://mibkujlbkjkvyuugepbp.supabase.co",
   supabaseAnonKey: "sb_publishable_xXLUpB6ZBqggfyUOUIAZiQ_tySi4MNJ",
 
-  /* ---- 사장님 페이지(admin.html) 잠금 PIN --------------------------
-     기본값 0000. 배포 후 반드시 다른 숫자로 바꿔 주세요.
-     (PIN은 화면 잠금용입니다. 실제 서버 보안은 supabase-schema.sql 의
-      관리자 RLS 정책과 PIN 설정을 함께 사용하세요.) */
-  adminPin: "0000",
+  /* ---- 사장님 페이지(admin.html) 잠금 -----------------------------
+     DB 모드에서는 Supabase Auth(이메일 + 비밀번호)로만 열립니다.
+     이 파일에는 비밀번호·PIN 을 두지 마세요. (공개 저장소에 그대로 보입니다)
+     관리자 계정·권한은 Supabase 대시보드와 SQL Editor 에서 설정합니다.
+     → README.md 의 '사장님 페이지' 항목 참고 */
 
   /* ---- 샘플 데이터 안내 배너 ------------------------------------
      실제 상품으로 교체한 뒤에는 showSampleBanner: false 로 바꾸세요. */

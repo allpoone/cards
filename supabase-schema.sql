@@ -6,8 +6,11 @@
 -- ▶ 적용 순서
 --   1) supabase.com 에서 새 프로젝트를 만듭니다. (무료 플랜으로 충분)
 --   2) Dashboard → SQL Editor 에 이 파일 전체를 붙여넣고 [Run].
---   3) 아래 '관리자 PIN' 값을 기본 0000 에서 원하는 숫자로 바꿔 한 번 더 실행합니다.
---        update private.shop_settings set admin_pin = '1234' where id = 1;
+--   3) 사장님(관리자) 계정을 만듭니다.
+--      Dashboard → Authentication → Users → [Add user] 에서
+--        이메일: acac020241@naver.com  / 비밀번호: 본인이 정하는 값
+--        Auto Confirm User 체크
+--      로 계정을 만든 뒤, 이 파일 맨 아래(13번) '관리자 권한 부여' SQL 을 실행합니다.
 --      자동 입금확인 시크릿도 확인해 둡니다. (MacroDroid 연동에 사용)
 --        select deposit_secret from private.shop_settings;
 --   4) Dashboard → Project Settings → API 에서
@@ -21,16 +24,16 @@
 --                          shipped 발송완료 / cancelled 취소)
 --   order_items     주문 상품 줄
 --   deposit_events  은행 알림 자동 입금확인 처리 로그 (관리자만 조회)
---   private.shop_settings  관리자 PIN · 자동 입금확인 시크릿 (anon 접근 차단)
+--   private.shop_settings  자동 입금확인 시크릿 (anon 접근 차단)
 --
 -- ▶ 보안 요약
 --   · 상품은 누구나 읽기만 가능하고, 재고 수정은 서버 함수(RPC)로만 됩니다.
 --   · 주문은 anon 이 직접 읽거나 쓸 수 없습니다. place_order / lookup_orders /
 --     update_order_status 함수(SECURITY DEFINER)를 통해서만 접근합니다.
 --   · 손님 조회는 주문번호 또는 (주문자명 + 연락처)가 정확히 일치해야 합니다.
---   · PIN 은 화면 잠금 + 서버 함수 검증용입니다. 여러 명이 관리해야 한다면
---     Supabase Auth 사용자에 app_metadata.role = 'admin' 을 주고
---     아래 private.is_admin() 경로를 쓰세요. (PIN 없이도 관리자 권한 인정)
+--   · 관리자 권한은 Supabase Auth 계정의 app_metadata.role = 'admin' 하나로만 결정됩니다.
+--     이 값은 서버가 서명한 JWT 안에 들어 있어 브라우저에서 위조할 수 없습니다.
+--     사이트 코드에는 어떤 비밀번호·PIN 도 두지 않습니다.
 -- ============================================================
 
 create extension if not exists pgcrypto;
@@ -43,12 +46,11 @@ revoke all on schema private from public;
 
 create table if not exists private.shop_settings (
   id         int primary key default 1 check (id = 1),
-  admin_pin  text not null default '0000',
   updated_at timestamptz not null default now()
 );
 
-insert into private.shop_settings (id, admin_pin)
-values (1, '0000')
+insert into private.shop_settings (id)
+values (1)
 on conflict (id) do nothing;
 
 -- 은행 입금 알림(MacroDroid 등) 자동 확인용 시크릿
@@ -68,33 +70,32 @@ as $$
   select coalesce((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin', false);
 $$;
 
--- 관리자 확인: Supabase Auth 관리자이거나 PIN이 맞아야 통과
-create or replace function private.assert_admin(p_pin text)
+-- 관리자 확인: Supabase Auth 로그인 계정의 app_metadata.role = 'admin' 만 인정
+-- (p_pin 은 예전 PIN 방식과의 호출 호환용 인자입니다. 값이 있어도 쓰지 않습니다.)
+create or replace function private.assert_admin(p_pin text default null)
 returns void
 language plpgsql
 stable
 security definer
 set search_path = private, public, pg_temp
 as $$
-declare
-  v_pin text;
 begin
   if private.is_admin() then
     return;
   end if;
 
-  select admin_pin into v_pin from private.shop_settings where id = 1;
-  if p_pin is not null and btrim(p_pin) = v_pin then
-    return;
-  end if;
-
-  raise exception '관리자 PIN이 올바르지 않습니다.'
+  raise exception '관리자 권한이 없습니다. 관리자 계정으로 로그인해 주세요.'
     using errcode = '28000';
 end;
 $$;
 
 revoke all on function private.is_admin() from public;
 revoke all on function private.assert_admin(text) from public;
+
+-- RLS 정책(products_admin 등)은 요청한 사용자(authenticated) 권한으로 실행되므로
+-- private 스키마 사용권한과 is_admin() 실행권한이 필요합니다.
+grant usage on schema private to authenticated;
+grant execute on function private.is_admin() to authenticated;
 
 -- ============================================================
 -- 2. 테이블
@@ -845,7 +846,27 @@ on conflict (id) do nothing;
 -- ============================================================
 
 -- ============================================================
--- 12. 설치 확인 — 자동 입금 확인 시크릿 (마지막에 실행)
+-- 12. 관리자 권한 (Supabase Auth)
+-- ------------------------------------------------------------
+-- 사장님 페이지는 Supabase Auth 로그인 계정 중 app_metadata.role = 'admin'
+-- 인 계정만 열립니다. 아래 순서로 관리자 계정을 준비하세요.
+--
+--   1) Dashboard → Authentication → Users → [Add user]
+--        이메일 acac020241@naver.com · 비밀번호는 본인이 정함 · Auto Confirm User 체크
+--   2) 아래 update 실행 (계정이 아직 없으면 아무 일도 일어나지 않습니다)
+--   3) 확인: select email, raw_app_meta_data from auth.users where email = 'acac020241@naver.com';
+--
+-- ※ 비밀번호를 잊으면 Dashboard → Authentication → Users 에서
+--   해당 계정의 [Reset password] / 비밀번호 변경으로 다시 정하면 됩니다.
+-- ============================================================
+update auth.users
+   set raw_app_meta_data =
+         coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', 'admin'),
+       updated_at = now()
+ where email = 'acac020241@naver.com';
+
+-- ============================================================
+-- 13. 설치 확인 — 자동 입금 확인 시크릿 (마지막에 실행)
 -- ------------------------------------------------------------
 -- 이 파일 전체를 [Run] 하면 아래 결과창에 deposit_secret 값이 바로 나옵니다.
 -- 그 값을 MacroDroid 의 p_secret 자리에 넣으면 됩니다.

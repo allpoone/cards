@@ -135,11 +135,19 @@ bankAccount: {
 
 1. [supabase.com](https://supabase.com) 에서 프로젝트를 만듭니다. (무료 플랜 가능)
 2. **SQL Editor** 에 `supabase-schema.sql` 전체를 붙여넣고 실행합니다.
-3. 관리자 PIN 을 바꿉니다.
+3. **사장님 계정(관리자)을 만듭니다.**
+   - **Authentication → Users → [Add user]**
+   - 이메일 `acac020241@naver.com`, 비밀번호는 본인이 정하는 값, **Auto Confirm User** 체크
+   - 다시 **SQL Editor** 에서 아래를 실행해 관리자 권한을 줍니다.
 
    ```sql
-   update private.shop_settings set admin_pin = '1234' where id = 1;
+   update auth.users
+      set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', 'admin')
+    where email = 'acac020241@naver.com';
    ```
+
+   > 관리자 권한은 이 `app_metadata.role = 'admin'` 하나로만 결정됩니다. 값은 서버가 서명한
+   > JWT 안에 들어 있어 브라우저에서 위조할 수 없고, 사이트 코드에는 비밀번호·PIN 이 없습니다.
 
 4. **Project Settings → API** 의 `Project URL` 과 공개 키(`publishable` 또는 예전 `anon public`)를 `cards.js` 에 넣습니다.
 
@@ -161,17 +169,20 @@ DB 로 바꾸면 재고 차감이 **원자적(atomic)** 으로 처리되어, 동
 
 주소: `https://allpoone.github.io/cards/admin.html`
 
-- **잠금**: `cards.js` 의 `adminPin` (기본값 `0000` — 배포 후 꼭 바꾸세요)
+- **로그인**: Supabase Auth 이메일 + 비밀번호 (`acac020241@naver.com`)
+  - 로그인한 계정의 `app_metadata.role` 이 `admin` 이어야 열립니다.
+  - 세션은 브라우저에 보관되어 새로고침해도 유지되고, **[로그아웃]** 으로 해제됩니다.
+  - 관리자 권한이 없는 계정으로 로그인하면 "관리자 권한이 없는 계정입니다" 안내가 뜹니다.
 - **주문 관리**: 전체 / 입금대기 / 입금완료 / 발송완료 / 취소 필터
   - **[입금확인 완료]** → `입금완료`
   - **[발송완료]** → `발송완료`
   - **[미입금 취소(재고복구)]** → `취소됨` + 차감했던 재고 자동 복구 + 품절 해제
 - **재고 관리**: 상품별 `-` / `+` 또는 숫자 입력 후 **[저장]** → 사이트에 즉시 반영 (0이면 자동 품절)
 
-> PIN 잠금은 화면 잠금입니다. 실제 서버 보안은 `supabase-schema.sql` 의 RLS +
-> 관리자 함수(`update_order_status`, `admin_set_stock`)가 담당합니다. 여러 명이
-> 함께 관리해야 한다면 Supabase Auth 사용자에 `app_metadata.role = 'admin'` 을 주고
-> PIN 없이 쓰는 방식을 권장합니다.
+> 잠금은 Supabase Auth 로그인이지만, 실제 서버 보안은 `supabase-schema.sql` 의 RLS +
+> 관리자 함수(`update_order_status`, `admin_set_stock`)가 담당합니다. 서버 함수는 요청의
+> JWT 안 `app_metadata.role = 'admin'` 을 직접 확인하므로, 코드를 뜯어봐도 관리자 작업은
+> 불가능합니다. 관리자를 추가하려면 그 계정에도 위 역할 부여 SQL 을 실행하면 됩니다.
 
 ### 주문 상태 흐름
 

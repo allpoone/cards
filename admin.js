@@ -8,7 +8,6 @@
   "use strict";
 
   var $ = function (id) { return document.getElementById(id); };
-  var PIN_KEY = "apo.admin.pin";
 
   var STATUS = {
     pending_payment: { label: "입금대기", cls: "pending" },
@@ -71,16 +70,133 @@
     }, kind === "warn" ? 4200 : 2600);
   }
 
-  function pin() {
-    try { return sessionStorage.getItem(PIN_KEY) || ""; } catch (e) { return ""; }
+  /* ============================================================
+     로그인 · 잠금 — Supabase Auth(이메일 + 비밀번호)
+     ============================================================ */
+  function store() { return window.APOStore; }
+
+  function dbMode() {
+    var s = store();
+    return !!s && !s.isDemo();
   }
 
-  function setPin(v) {
-    try { sessionStorage.setItem(PIN_KEY, v); } catch (e) { /* 무시 */ }
+  function loggedIn() {
+    var s = store();
+    if (!s) return false;
+    return s.isDemo() ? s.isUnlocked() : s.isAdminSession();
   }
 
-  function clearPin() {
-    try { sessionStorage.removeItem(PIN_KEY); } catch (e) { /* 무시 */ }
+  function setLockMessage(message) {
+    var err = $("lockError");
+    if (!err) return;
+    err.textContent = message || "";
+    err.hidden = !message;
+  }
+
+  function showHeaderUser(user) {
+    var el = $("whoami");
+    if (!el) return;
+    var email = user && user.email ? String(user.email) : "";
+    el.textContent = email;
+    el.hidden = !email;
+  }
+
+  function showApp(user) {
+    $("adminLock").hidden = true;
+    $("adminApp").hidden = false;
+    var out = $("logoutBtn");
+    if (out) {
+      out.hidden = false;
+      out.textContent = dbMode() ? "로그아웃" : "잠금";
+    }
+    showHeaderUser(user);
+    loadAll();
+  }
+
+  function showLock(message) {
+    $("adminApp").hidden = true;
+    $("adminLock").hidden = false;
+    $("logoutBtn").hidden = true;
+    showHeaderUser(null);
+    orders = [];
+    setLockMessage(message);
+    var inline = $("logoutInline");
+    if (inline) inline.hidden = true;
+    var pw = $("adminPassword");
+    if (pw) pw.value = "";
+    if (dbMode()) {
+      var mail = $("adminEmail");
+      if (mail) mail.focus();
+    }
+  }
+
+  /* 로그인은 됐지만 관리자 권한(app_metadata.role)이 없는 계정 */
+  function showNoAdmin(user, message) {
+    var email = user && user.email ? String(user.email) : "";
+    var msg = message || ("관리자 권한이 없는 계정입니다." + (email ? " (" + email + ")" : ""));
+    showLock(msg);
+    var inline = $("logoutInline");
+    if (inline) inline.hidden = false;
+  }
+
+  function setLoginBusy(on) {
+    var btn = $("loginBtn");
+    if (!btn) return;
+    btn.disabled = !!on;
+    btn.textContent = on ? "로그인 중…" : "로그인";
+  }
+
+  /* DB 모드 = 이메일 로그인 / 테스트 모드 = 로컬 열기 */
+  function applyLockMode() {
+    var demo = !dbMode();
+    var form = $("loginForm");
+    var demoBox = $("demoLock");
+    var desc = $("lockDesc");
+    var hint = $("lockHint");
+    if (form) form.hidden = demo;
+    if (demoBox) demoBox.hidden = !demo;
+    if (desc) desc.hidden = demo;
+    if (hint) hint.hidden = demo;
+  }
+
+  function doLogout() {
+    var s = store();
+    if (!s) return;
+    var demo = !dbMode();
+    showLock("");
+    s.signOut().then(function () {
+      setLockMessage("");
+      toast(demo ? "잠겼습니다." : "로그아웃했습니다.", "ok");
+    });
+  }
+
+  function doLogin(email, password) {
+    var s = store();
+    if (!s) return;
+    setLockMessage("");
+    setLoginBusy(true);
+    s.signIn(email, password)
+      .then(function (res) {
+        setLoginBusy(false);
+        if (!res || !res.isAdmin) {
+          showNoAdmin(res && res.user, "관리자 권한이 없는 계정입니다. 다른 계정으로 로그인하거나 로그아웃해 주세요.");
+          return;
+        }
+        var hint = $("lockHint");
+        if (hint) hint.hidden = false;
+        showApp(res.user);
+        toast("로그인했습니다.", "ok");
+      })
+      .catch(function (err) {
+        setLoginBusy(false);
+        setLockMessage((err && err.message) || "로그인하지 못했습니다.");
+        var pw = $("adminPassword");
+        if (pw) { pw.value = ""; pw.focus(); }
+      });
+  }
+
+  function isAuthProblem(msg) {
+    return /관리자|권한|JWT|jwt|토큰|token|세션|로그인|permission|not authorized/i.test(String(msg || ""));
   }
 
   /* ── 테스트 모드 안내 ─────────────────────────────────── */
@@ -109,49 +225,12 @@
     }
   }
 
-  /* ── 잠금 ─────────────────────────────────────────────── */
-  function showApp() {
-    $("adminLock").hidden = true;
-    $("adminApp").hidden = false;
-    $("lockBtn").hidden = false;
-    loadAll();
-  }
-
-  function showLock(message) {
-    $("adminApp").hidden = true;
-    $("adminLock").hidden = false;
-    $("lockBtn").hidden = true;
-    orders = [];
-    if (message) {
-      var err = $("lockError");
-      err.textContent = message;
-      err.hidden = false;
-    }
-    var input = $("pinInput");
-    if (input) { input.value = ""; input.focus(); }
-  }
-
-  function tryUnlock(value) {
-    var s = window.APOStore;
-    if (!s) return;
-    if (s.unlock(value)) {
-      setPin(value);
-      $("lockError").hidden = true;
-      showApp();
-      return;
-    }
-    var err = $("lockError");
-    err.textContent = "PIN이 맞지 않습니다. cards.js 의 adminPin 을 확인해 주세요.";
-    err.hidden = false;
-    $("pinInput").select();
-  }
-
   /* ── 주문 목록 ────────────────────────────────────────── */
   function loadOrders() {
     var s = window.APOStore;
     if (!s) return Promise.resolve([]);
     busy = true;
-    return s.listOrders(pin())
+    return s.listOrders()
       .then(function (list) {
         orders = list || [];
         orders.sort(function (a, b) {
@@ -163,7 +242,7 @@
       .catch(function (err) {
         var msg = (err && err.message) || "주문을 불러오지 못했습니다.";
         toast(msg, "warn");
-        if (/PIN/i.test(msg)) showLock(msg);
+        if (isAuthProblem(msg)) showLock(msg);
         return [];
       })
       .then(function (v) { busy = false; return v; });
@@ -281,7 +360,7 @@
     }[status];
     if (ask && !window.confirm(ask)) return;
 
-    s.setOrderStatus(orderNo, status, pin()).then(function () {
+    s.setOrderStatus(orderNo, status).then(function () {
       var label = (STATUS[status] || {}).label || status;
       toast((target ? target.order_no + " · " : "") + label + " 처리했습니다.", "ok");
       return loadOrders();
@@ -324,7 +403,7 @@
   function saveStock(id, value) {
     var s = window.APOStore;
     if (!s) return;
-    s.setStock(id, value, pin()).then(function (p) {
+    s.setStock(id, value).then(function (p) {
       if (p) toast(p.name + " 재고를 " + p.stock + s.unitOf(p) + "로 저장했습니다.", "ok");
       renderStock();
     }).catch(function (err) {
@@ -396,7 +475,7 @@
   function loadEvents() {
     var s = window.APOStore;
     if (!s) return Promise.resolve([]);
-    return s.listDepositEvents(pin(), 30)
+    return s.listDepositEvents(30)
       .then(function (list) {
         renderEvents(list);
         return list;
@@ -409,23 +488,32 @@
 
   /* ── 이벤트 ───────────────────────────────────────────── */
   function wire() {
-    $("lockForm").addEventListener("submit", function (e) {
+    /* ── 이메일 + 비밀번호 로그인 ── */
+    $("loginForm").addEventListener("submit", function (e) {
       e.preventDefault();
-      var v = ($("pinInput").value || "").trim();
-      if (!v) {
-        var err = $("lockError");
-        err.textContent = "PIN을 입력해 주세요.";
-        err.hidden = false;
+      var email = ($("adminEmail").value || "").trim();
+      var pw = $("adminPassword").value || "";
+      if (!email) {
+        setLockMessage("관리자 이메일을 입력해 주세요.");
+        $("adminEmail").focus();
         return;
       }
-      tryUnlock(v);
+      if (!pw) {
+        setLockMessage("비밀번호를 입력해 주세요.");
+        $("adminPassword").focus();
+        return;
+      }
+      doLogin(email, pw);
     });
 
-    $("lockBtn").addEventListener("click", function () {
-      window.APOStore.lock();
-      clearPin();
-      showLock("");
-      toast("잠금했습니다.", "ok");
+    /* ── 로그아웃 / (테스트 모드) 잠금 ── */
+    $("logoutBtn").addEventListener("click", doLogout);
+    $("logoutInline").addEventListener("click", doLogout);
+
+    /* ── 테스트 모드 전용: 로그인 없이 열기 ── */
+    $("demoOpenBtn").addEventListener("click", function () {
+      var s = store();
+      if (s && s.unlock()) showApp(null);
     });
 
     $("orderFilter").addEventListener("click", function (e) {
@@ -491,7 +579,7 @@
     /* 다른 탭(손님 화면)에서 주문이 들어오면 자동 반영 */
     window.addEventListener("storage", function (e) {
       if (!e.key || e.key.indexOf("apo.") !== 0) return;
-      if (!pin()) return;
+      if (!loggedIn()) return;
       loadOrders();
       loadEvents();
     });
@@ -510,8 +598,21 @@
     s.init().then(function () {
       renderModeBanner();
       wire();
-      if (s.isUnlocked() && pin()) showApp();
-      else showLock("");
+      applyLockMode();
+
+      if (s.isDemo()) {
+        if (s.isUnlocked()) showApp(null);
+        else showLock("");
+        return;
+      }
+
+      /* 이미 로그인된 세션이 있으면 자동으로 이어서 열기 */
+      s.loadSession().then(function (session) {
+        var user = (session && session.user) || null;
+        if (!user) { showLock(""); return; }
+        if (!s.isAdminUser(user)) { showNoAdmin(user); return; }
+        showApp(user);
+      });
     });
   }
 

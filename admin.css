@@ -76,6 +76,27 @@
   line-height: 1.6;
 }
 
+/* 이메일 + 비밀번호 로그인 (PIN 입력용 글자 간격·가운데 정렬 되돌리기) */
+#adminEmail,
+#adminPassword {
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: left;
+}
+.lock__form .lock__label:not(:first-child) { margin-top: 4px; }
+.lock__demo { margin-bottom: 14px; }
+.lock__demo .lock__desc { margin-bottom: 12px; }
+.lock__logout { margin-bottom: 12px; }
+.whoami {
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+}
+
 /* ── 요약 ───────────────────────────────────────────────── */
 .admin-stats {
   display: grid;

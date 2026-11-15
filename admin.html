@@ -9,8 +9,8 @@
 <link rel="icon" type="image/png" sizes="160x160" href="logo-160.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160118" />
-<link rel="stylesheet" href="admin.css?v=202611160118" />
+<link rel="stylesheet" href="styles.css?v=202611160127" />
+<link rel="stylesheet" href="admin.css?v=202611160127" />
 </head>
 <body class="admin-body">
 
@@ -30,8 +30,9 @@
       </span>
     </a>
     <div class="header-actions">
+      <span class="whoami" id="whoami" hidden></span>
       <a class="btn btn--ghost btn--sm" href="index.html">사이트로</a>
-      <button class="btn btn--ghost btn--sm" type="button" id="lockBtn" hidden>잠금</button>
+      <button class="btn btn--ghost btn--sm" type="button" id="logoutBtn" hidden>로그아웃</button>
     </div>
   </div>
 </header>
@@ -43,24 +44,44 @@
     <div class="lock__card">
       <p class="lock__eyebrow">OWNER ONLY</p>
       <h1 class="lock__title">사장님 페이지</h1>
-      <p class="lock__desc">주문 확인 · 입금 처리 · 재고 수정은 PIN으로 잠겨 있습니다.</p>
-      <form id="lockForm" class="lock__form" novalidate>
-        <label class="lock__label" for="pinInput">관리자 PIN</label>
+      <p class="lock__desc" id="lockDesc">주문 확인 · 입금 처리 · 재고 수정은 관리자 계정으로 로그인해야 합니다.</p>
+
+      <form id="loginForm" class="lock__form" novalidate>
+        <label class="lock__label" for="adminEmail">관리자 이메일</label>
         <input
-          id="pinInput"
+          id="adminEmail"
+          class="lock__input"
+          type="email"
+          inputmode="email"
+          autocomplete="username"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="name@example.com"
+          aria-describedby="lockError"
+        />
+        <label class="lock__label" for="adminPassword">비밀번호</label>
+        <input
+          id="adminPassword"
           class="lock__input"
           type="password"
-          inputmode="numeric"
-          autocomplete="off"
-          maxlength="12"
-          placeholder="PIN 4자리"
+          autocomplete="current-password"
+          placeholder="비밀번호"
           aria-describedby="lockError"
         />
         <p class="lock__error" id="lockError" role="alert" hidden></p>
-        <button class="btn btn--gold btn--block" type="submit">열기</button>
+        <button class="btn btn--gold btn--block" type="submit" id="loginBtn">로그인</button>
       </form>
-      <p class="lock__hint">기본 PIN은 <b>0000</b> 입니다. <code>cards.js</code> 의 <code>adminPin</code> 에서 바꿀 수 있습니다.</p>
-      <p class="lock__warn">PIN 잠금은 화면 잠금입니다. 실제 서버 보안은 Supabase 관리자 정책(README 참고)을 함께 사용하세요.</p>
+
+      <!-- 테스트 모드(DB 연동 전) 전용 -->
+      <div class="lock__demo" id="demoLock" hidden>
+        <p class="lock__desc">DB 연동 전 테스트 모드입니다. 로그인 없이 이 브라우저에만 저장된 주문을 처리해 볼 수 있습니다.</p>
+        <button class="btn btn--gold btn--block" type="button" id="demoOpenBtn">테스트 모드로 열기</button>
+      </div>
+
+      <button class="btn btn--ghost btn--block lock__logout" type="button" id="logoutInline" hidden>다른 계정으로 로그인</button>
+
+      <p class="lock__hint" id="lockHint">관리자 계정은 Supabase Authentication 에 등록된 이메일 계정이며, 관리자 권한(<code>role: admin</code>)이 있는 계정만 열 수 있습니다.</p>
+      <p class="lock__warn">비밀번호는 사이트 코드에 저장하지 않습니다. 로그인 상태는 이 브라우저에 안전하게 보관되며, [로그아웃]을 누르면 즉시 해제됩니다.</p>
     </div>
   </section>
 
@@ -143,8 +164,8 @@
 
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160118"></script>
-<script src="store.js?v=202611160118"></script>
-<script src="admin.js?v=202611160118"></script>
+<script src="cards.js?v=202611160127"></script>
+<script src="store.js?v=202611160127"></script>
+<script src="admin.js?v=202611160127"></script>
 </body>
 </html>
