@@ -468,6 +468,7 @@
 .pf__rate input:disabled { opacity: 0.45; cursor: not-allowed; }
 .pf__rate.is-off .pf__rate-unit { opacity: 0.5; }
 .pf__rate-unit { font-size: 0.8rem; font-weight: 700; color: var(--text-dim); }
+.pf__note { margin: 0; font-size: 0.68rem; line-height: 1.45; color: var(--gold-soft); }
 
 /* 회원 목록 */
 .member-search { display: flex; gap: 6px; margin-bottom: 10px; }

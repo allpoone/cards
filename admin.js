@@ -84,8 +84,18 @@
       esc(val) + '" aria-label="상품 적립률(%)" ' + rateAttr + (checked ? "" : " disabled") + " />" +
       '<span class="pf__rate-unit">%</span>' +
       "</span>" +
-      "</div></div>"
+      "</div>" +
+      ratePatchHint() +
+      "</div>"
     );
+  }
+
+  /* 상품별 적립률을 아직 저장할 수 없는 DB(패치 전)일 때 안내 */
+  function ratePatchHint() {
+    var s = window.APOStore;
+    if (!s || s.isDemo() || !s.dbColumns) return "";
+    if (s.dbColumns() === "point_rate") return "";
+    return '<p class="pf__note">상품별 적립률 저장은 SQL 패치(supabase-patch-product-rate.sql)를 실행한 뒤부터 됩니다. 지금은 상점 기본 적립률로 계산됩니다.</p>';
   }
 
   /* 체크박스에 맞춰 적립률 입력칸을 켜고 끕니다. */
