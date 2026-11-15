@@ -1425,7 +1425,10 @@
     $("shopNameKo").textContent = c.shopNameKo || "";
     $("intro").textContent = c.intro || "";
     $("guideTitle").textContent = c.guideTitle || "진행 안내";
-    $("guideIntro").textContent = c.guideIntro || "";
+    $("guideIntro").innerHTML = String(c.guideIntro || "")
+      .split(/<br\s*\/?>/i)
+      .map(esc)
+      .join("<br>");
     $("guideNotice").textContent = c.guideNotice || "";
     $("footerShop").textContent = c.shopName;
     $("footerNote").textContent = c.footerNote || "";
