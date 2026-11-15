@@ -1391,6 +1391,7 @@
       '<span>' + esc(sub || "-") + "</span>" +
       "</div>" +
       '<div class="memprow__bal"><span>보유</span><b data-balance>' + pts(m.balance) + "</b></div>" +
+      '<button class="btn btn--ghost btn--xs" type="button" data-point-history>내역 보기</button>' +
       '<button class="btn btn--ghost btn--xs" type="button" data-point-toggle>적립금 조정</button>' +
       "</div>" +
       '<div class="memprow__edit" hidden>' +
@@ -1405,8 +1406,67 @@
       '<button class="btn btn--text btn--xs" type="button" data-point-toggle>닫기</button>' +
       "</div>" +
       "</div>" +
+      '<div class="memprow__hist" data-pt-hist hidden></div>' +
       "</article>"
     );
+  }
+
+  /* ── 회원별 적립금 내역 (적립 · 사용 · 환불 · 관리자 조정) ── */
+  var POINT_KIND = {
+    earn: { label: "적립", cls: "earn" },
+    use: { label: "사용", cls: "use" },
+    refund: { label: "환불", cls: "refund" },
+    admin: { label: "관리자 조정", cls: "admin" },
+  };
+
+  function pointHistoryRow(t) {
+    var k = POINT_KIND[t.kind] || { label: t.kind || "기타", cls: "" };
+    var amt = Number(t.amount) || 0;
+    var meta = [t.order_no ? esc(t.order_no) : "", t.note ? esc(t.note) : ""]
+      .filter(Boolean).join(" · ");
+    return (
+      '<li class="phist__row">' +
+      '<span class="phist__when">' + esc(t.created_at ? stamp(t.created_at) : "-") + "</span>" +
+      '<span class="phist__kind phist__kind--' + esc(k.cls) + '">' + esc(k.label) + "</span>" +
+      '<b class="phist__amt' + (amt > 0 ? " is-plus" : (amt !== 0 ? " is-minus" : "")) + '">' +
+      (amt > 0 ? "+" : "") + esc(pts(amt)) + "</b>" +
+      '<span class="phist__meta">' + (meta || "-") + "</span>" +
+      "</li>"
+    );
+  }
+
+  function loadMemberHistory(row) {
+    var s = window.APOStore;
+    var box = row.querySelector("[data-pt-hist]");
+    if (!box) return;
+    if (!box.hidden) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    if (!s || !s.getMemberPointHistory) {
+      box.innerHTML = '<p class="phist__note">DB 패치 필요 — supabase-patch-point-history.sql 을 실행한 뒤 다시 눌러 주세요.</p>';
+      return;
+    }
+    if (s.isDemo && s.isDemo()) {
+      box.innerHTML = '<p class="phist__note">DB 연동 후에 볼 수 있습니다.</p>';
+      return;
+    }
+    box.innerHTML = '<p class="phist__note">내역을 불러오는 중…</p>';
+    s.getMemberPointHistory(row.getAttribute("data-user"))
+      .then(function (list) {
+        if (!list || !list.length) {
+          box.innerHTML = '<p class="phist__note">아직 적립금 내역이 없습니다.</p>';
+          return;
+        }
+        box.innerHTML = '<ul class="phist">' + list.map(pointHistoryRow).join("") + "</ul>";
+      })
+      .catch(function (err) {
+        box.innerHTML = '<p class="phist__note">' +
+          (err && err.code === "NEED_UPGRADE"
+            ? "DB 패치 필요 — supabase-patch-point-history.sql 을 실행한 뒤 다시 눌러 주세요."
+            : esc((err && err.message) || "내역을 불러오지 못했습니다.")) + "</p>";
+      });
   }
 
   function renderMembers(list) {
@@ -1657,6 +1717,7 @@
         return;
       }
       if (e.target.closest("[data-pt-apply]")) { applyMemberPoints(row); return; }
+      if (e.target.closest("[data-point-history]")) { loadMemberHistory(row); return; }
     });
     $("memberList").addEventListener("keydown", function (e) {
       if (e.key !== "Enter") return;

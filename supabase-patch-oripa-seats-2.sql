@@ -98,7 +98,9 @@ begin
     with raw as (
       select e ->> 'product_id' as pid,
              coalesce((e ->> 'qty')::int, 0) as qty,
-             coalesce(e -> 'seat_numbers', '[]'::jsonb) as seats
+             case when jsonb_typeof(e -> 'seat_numbers') = 'array'
+                  then e -> 'seat_numbers'
+                  else '[]'::jsonb end as seats
         from jsonb_array_elements(p_items) e
     )
     select r.pid as product_id,
@@ -228,12 +230,23 @@ begin
   v_earn  := greatest(0, v_step2)::int;
   v_total := v_subtotal - v_use;
 
-  update public.orders
-     set total_amount  = v_total,
-         used_points   = v_use,
-         earned_points = v_earn,
-         updated_at    = now()
-   where id = v_order_id;
+  if v_total = 0 then
+    update public.orders
+       set total_amount  = v_total,
+           used_points   = v_use,
+           earned_points = v_earn,
+           status        = 'paid',
+           paid_at       = v_created,
+           updated_at    = now()
+     where id = v_order_id;
+  else
+    update public.orders
+       set total_amount  = v_total,
+           used_points   = v_use,
+           earned_points = v_earn,
+           updated_at    = now()
+     where id = v_order_id;
+  end if;
 
   if v_use > 0 then
     update public.point_wallets
@@ -243,6 +256,10 @@ begin
 
     insert into public.point_transactions (user_id, amount, kind, order_no, memo)
     values (v_uid, -v_use, 'use', v_order_no, '주문 적립금 사용');
+  end if;
+
+  if v_total = 0 then
+    perform private.award_order_points(v_order_id);
   end if;
 
   return public.order_json(v_order_id);

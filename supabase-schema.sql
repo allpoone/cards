@@ -971,7 +971,9 @@ begin
     with raw as (
       select e ->> 'product_id' as pid,
              coalesce((e ->> 'qty')::int, 0) as qty,
-             coalesce(e -> 'seat_numbers', '[]'::jsonb) as seats
+             case when jsonb_typeof(e -> 'seat_numbers') = 'array'
+                  then e -> 'seat_numbers'
+                  else '[]'::jsonb end as seats
         from jsonb_array_elements(p_items) e
     )
     select r.pid as product_id,
@@ -1101,12 +1103,24 @@ begin
   v_earn  := greatest(0, v_step2)::int;
   v_total := v_subtotal - v_use;
 
-  update public.orders
-     set total_amount  = v_total,
-         used_points   = v_use,
-         earned_points = v_earn,
-         updated_at    = now()
-   where id = v_order_id;
+  /* 적립금 전액 결제(0원)는 주문과 동시에 입금완료로 확정합니다. */
+  if v_total = 0 then
+    update public.orders
+       set total_amount  = v_total,
+           used_points   = v_use,
+           earned_points = v_earn,
+           status        = 'paid',
+           paid_at       = v_created,
+           updated_at    = now()
+     where id = v_order_id;
+  else
+    update public.orders
+       set total_amount  = v_total,
+           used_points   = v_use,
+           earned_points = v_earn,
+           updated_at    = now()
+     where id = v_order_id;
+  end if;
 
   if v_use > 0 then
     update public.point_wallets
@@ -1116,6 +1130,11 @@ begin
 
     insert into public.point_transactions (user_id, amount, kind, order_no, memo)
     values (v_uid, -v_use, 'use', v_order_no, '주문 적립금 사용');
+  end if;
+
+  /* 전액 결제 주문은 0P 이지만 points_awarded 상태를 바로 기록합니다. */
+  if v_total = 0 then
+    perform private.award_order_points(v_order_id);
   end if;
 
   return public.order_json(v_order_id);
@@ -1985,6 +2004,50 @@ $$;
 comment on function public.admin_list_member_points(text, integer, text) is
   '관리자용 회원 목록 + 보유 적립금. 아이디·이름·휴대폰 번호로 검색.';
 
+-- ── 사장님: 회원별 적립금 내역 (최근 100건) ──────────────
+create or replace function public.admin_member_point_history(
+  p_user_id uuid,
+  p_pin     text default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_list jsonb;
+begin
+  perform private.assert_admin(p_pin);
+
+  if p_user_id is null then
+    raise exception '회원을 선택해 주세요.' using errcode = '22023';
+  end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id',         x.id,
+           'amount',     x.amount,
+           'kind',       x.kind,
+           'order_no',   x.order_no,
+           'note',       x.memo,
+           'created_at', x.created_at
+         ) order by x.created_at desc, x.id desc), '[]'::jsonb)
+    into v_list
+    from (
+      select t.id, t.amount, t.kind, t.order_no, t.memo, t.created_at
+        from public.point_transactions t
+       where t.user_id = p_user_id
+       order by t.created_at desc, t.id desc
+       limit 100
+    ) x;
+
+  return coalesce(v_list, '[]'::jsonb);
+end;
+$$;
+
+comment on function public.admin_member_point_history(uuid, text) is
+  '관리자용 회원별 적립금 내역(적립·사용·환불·관리자 조정) 최근 100건.';
+
 create or replace function public.admin_adjust_points(
   p_user_id uuid,
   p_amount  integer,
@@ -2310,6 +2373,7 @@ grant execute on function public.admin_delete_order(text, text)     to anon, aut
 grant execute on function public.admin_set_require_login(boolean, text) to anon, authenticated;
 grant execute on function public.admin_set_point_rate(numeric, text) to anon, authenticated;
 grant execute on function public.admin_list_member_points(text, integer, text) to anon, authenticated;
+grant execute on function public.admin_member_point_history(uuid, text) to anon, authenticated;
 grant execute on function public.admin_adjust_points(uuid, integer, text, text) to anon, authenticated;
 grant execute on function public.auto_confirm_deposit(text, text)    to anon, authenticated;
 grant execute on function public.admin_deposit_events(text, integer) to anon, authenticated;

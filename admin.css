@@ -551,6 +551,50 @@
 .memprow__fields .pf { flex: 1 1 130px; }
 .memprow__fields .pf--wide { flex: 2 1 220px; }
 .memprow__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.memprow__hist { padding: 4px 13px 13px; border-top: 1px solid var(--line); }
+.phist {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.phist::-webkit-scrollbar { width: 6px; }
+.phist::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 3px; }
+.phist__row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 7px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.phist__row:last-child { border-bottom: 0; }
+.phist__when { flex: none; color: var(--text-faint); font-size: 0.68rem; }
+.phist__kind {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+.phist__kind--earn { border-color: rgba(143, 247, 204, 0.35); background: rgba(143, 247, 204, 0.1); color: #8ff7cc; }
+.phist__kind--use { border-color: rgba(255, 176, 32, 0.3); background: rgba(255, 176, 32, 0.1); color: #ffd08a; }
+.phist__kind--refund { border-color: rgba(96, 132, 255, 0.35); background: rgba(96, 132, 255, 0.12); color: #b7c6ff; }
+.phist__kind--admin { border-color: rgba(227, 192, 122, 0.35); background: rgba(227, 192, 122, 0.12); color: var(--gold-soft); }
+.phist__amt { flex: none; font-weight: 850; color: var(--text-dim); }
+.phist__amt.is-plus { color: #8ff7cc; }
+.phist__amt.is-minus { color: #ffb6a0; }
+.phist__meta { flex: 1 1 120px; min-width: 0; color: var(--text-faint); font-size: 0.68rem; overflow-wrap: anywhere; }
+.phist__note { margin: 6px 0 0; font-size: 0.72rem; color: var(--text-faint); line-height: 1.55; }
 
 /* 주문 카드 적립금 줄 */
 .aorder__points { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 0 0; }

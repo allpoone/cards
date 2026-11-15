@@ -977,7 +977,16 @@
       address_detail: form.address_detail || "",
       memo: form.memo || "",
     };
-    var items = lines.map(function (l) { return { product_id: l.id, qty: l.qty, seat_numbers: l.seats || null }; });
+    var items = lines.map(function (l) {
+      return {
+        product_id: l.id,
+        qty: l.qty,
+        /* 번호판이 없는 일반 상품은 null 대신 빈 배열 [] 을 보냅니다.
+           (null 을 보내면 서버가 'null'::jsonb 를 풀다가
+            cannot extract elements from a scalar 오류가 납니다) */
+        seat_numbers: Array.isArray(l.seats) && l.seats.length ? l.seats : [],
+      };
+    });
     var usePoints = clampInt(form.usePoints, 0, 100000000);
 
     function done(data) {
@@ -2458,6 +2467,30 @@
       });
   }
 
+  /* 사장님: 특정 회원의 적립금 내역(최근 100건) */
+  function getMemberPointHistory(userId) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    if (!userId) return Promise.reject(new Error("회원을 선택해 주세요."));
+    return rpc("admin_member_point_history", { p_user_id: userId, p_pin: null })
+      .then(function (data) {
+        var list = Array.isArray(data) ? data : (data ? [data] : []);
+        return list.map(function (t) {
+          return {
+            id: t.id,
+            amount: Number(t.amount) || 0,
+            kind: t.kind || "",
+            order_no: t.order_no || "",
+            note: t.note || "",
+            created_at: t.created_at,
+          };
+        });
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
   /* 사장님 설정: 비로그인 주문 허용 여부 */
   function requireLogin() {
     return !!settings.requireLogin;
@@ -2613,6 +2646,7 @@
     setPointRate: setPointRate,
     listMemberPoints: listMemberPoints,
     adjustPoints: adjustPoints,
+    getMemberPointHistory: getMemberPointHistory,
     user: currentUser,
     userMeta: userMeta,
     displayId: displayId,

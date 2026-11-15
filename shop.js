@@ -984,12 +984,20 @@
     var s = store();
     var st = statusOf(order);
     var demo = order.mode === "demo";
+    /* 적립금 전액 결제(0원)는 주문과 동시에 입금완료(paid)로 저장됩니다. */
+    var paid = String(order.status) === "paid" || String(order.status) === "shipped";
+    var usedPt = Number(order.used_points) || 0;
+    var earnedPt = Number(order.earned_points) || 0;
 
     $("doneBody").innerHTML =
       '<div class="done">' +
-      '<p class="done__eyebrow">ORDER RECEIVED</p>' +
-      '<h2 class="done__title" id="doneTitle">주문이 접수되었습니다</h2>' +
-      '<p class="done__sub">아래 계좌로 입금해 주시면 확인 후 발송됩니다.</p>' +
+      '<p class="done__eyebrow">' + (paid ? "PAYMENT COMPLETE" : "ORDER RECEIVED") + "</p>" +
+      '<h2 class="done__title" id="doneTitle">' +
+      (paid ? "적립금 전액 결제가 완료되었습니다" : "주문이 접수되었습니다") + "</h2>" +
+      '<p class="done__sub">' +
+      (paid
+        ? "입금하실 금액이 없습니다. 결제가 완료되어 발송 준비를 시작합니다."
+        : "아래 계좌로 입금해 주시면 확인 후 발송됩니다.") + "</p>" +
 
       '<div class="done__meta">' +
       '<div class="done__meta-row">' +
@@ -1005,20 +1013,22 @@
 
       expiryMarkup(order, false) +
 
-      bankMarkup(false) +
+      (paid ? "" : bankMarkup(false)) +
 
       '<div class="done__amount">' +
-      "<span>입금 금액</span>" +
+      "<span>" + (paid ? "결제 금액" : "입금 금액") + "</span>" +
       "<strong>" + won(order.total_amount) + "</strong>" +
       "</div>" +
 
-      (Number(order.used_points) > 0 || Number(order.earned_points) > 0
+      (usedPt > 0 || earnedPt > 0
         ? '<div class="done__points">' +
-          (Number(order.used_points) > 0
-            ? "<p>적립금 " + pts(order.used_points) + " 사용 (주문 금액에서 차감)</p>"
+          (usedPt > 0
+            ? "<p>적립금 " + pts(usedPt) + " 사용" + (paid ? " (전액 결제)" : " (주문 금액에서 차감)") + "</p>"
             : "") +
-          (Number(order.earned_points) > 0
-            ? "<p><b>입금 확인되면 " + pts(order.earned_points) + " 적립</b>됩니다.</p>"
+          (earnedPt > 0
+            ? (paid
+              ? "<p><b>" + pts(earnedPt) + " 적립되었습니다.</b></p>"
+              : "<p><b>입금 확인되면 " + pts(earnedPt) + " 적립</b>됩니다.</p>")
             : "") +
           "</div>"
         : "") +
@@ -1030,9 +1040,11 @@
       "</ul>" +
 
       '<div class="done__box">' +
-      '<p>' + esc(CFG.transferNotice || "입금 확인 후 주문 상태가 [입금완료]로 변경됩니다.") + "</p>" +
+      (paid
+        ? "<p>적립금 전액 결제로 결제가 완료되었습니다. 입금 확인이 필요한 단계가 없습니다.</p>"
+        : '<p>' + esc(CFG.transferNotice || "입금 확인 후 주문 상태가 [입금완료]로 변경됩니다.") + "</p>") +
       (CFG.shippingNotice ? "<p>" + esc(CFG.shippingNotice) + "</p>" : "") +
-      (bankInfo().ready ? "" : '<p class="done__box-warn">입금 계좌가 아직 등록되지 않았습니다. 오픈톡으로 계좌를 문의해 주세요.</p>') +
+      (!paid && !bankInfo().ready ? '<p class="done__box-warn">입금 계좌가 아직 등록되지 않았습니다. 오픈톡으로 계좌를 문의해 주세요.</p>' : "") +
       "</div>" +
 
       (demo
