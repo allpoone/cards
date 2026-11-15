@@ -52,7 +52,8 @@ const pg = pgcrypto ? new PGliteMod.PGlite({ extensions: { pgcrypto } }) : new P
 await pg.waitReady;
 
 const prelude = `
-create extension if not exists pgcrypto;
+create or replace function gen_random_bytes(int) returns bytea language sql as $f$
+  select decode('00112233445566778899aabbccddeeff', 'hex') $f$;
 do $a$ begin create role anon nologin; exception when duplicate_object then null; end $a$;
 do $a$ begin create role authenticated nologin; exception when duplicate_object then null; end $a$;
 create schema if not exists auth;
@@ -73,9 +74,8 @@ grant usage on schema public to anon, authenticated;
 
 const runFile = async (name, label) => {
   let sql = await getText(name);
-  if (!pgcrypto) {
-    sql = sql.replace(/create extension if not exists pgcrypto;/g, '');
-  }
+  /* PGlite 에는 pgcrypto 가 없어 검증용으로 줄만 지움 (gen_random_bytes 는 prelude 스텁) */
+  sql = sql.replace(/create extension if not exists pgcrypto;/g, '');
   try {
     await pg.exec(sql);
     result.sql[label] = 'ok (' + sql.length + ' bytes)';
@@ -86,7 +86,6 @@ const runFile = async (name, label) => {
 };
 
 try {
-  if (!pgcrypto) await pg.exec("create or replace function gen_random_bytes(int) returns bytea language sql as $f$ select decode('00112233445566778899aabbccddeeff','hex') $f$");
   await pg.exec(prelude);
   result.sql.prelude = 'ok';
 } catch (e) {
