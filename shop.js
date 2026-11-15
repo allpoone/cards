@@ -1517,6 +1517,8 @@
   var mpLookupMode = "no";
   var mpLastQuery = null;
   var mpSaveBusy = false;
+  var mpOrders = null;
+  var mpOrderFilter = "all";
 
   function mypageTabsMarkup(active) {
     var tabs = [
@@ -1581,7 +1583,10 @@
   }
 
   function mypageOrdersMarkup() {
-    return '<div class="mypage__orders" id="mypageOrders"><p class="lookup__loading">불러오는 중…</p></div>';
+    return (
+      '<div class="chips mypage__order-filters" id="mypageOrderFilters" role="group" aria-label="주문 상태 필터"></div>' +
+      '<div class="mypage__orders" id="mypageOrders"><p class="lookup__loading">불러오는 중…</p></div>'
+    );
   }
 
   function mypagePointsMarkup() {
@@ -1699,6 +1704,8 @@
     mypageTab = tab === "orders" || tab === "points" ? tab : "info";
     mpLookupMode = "no";
     mpLastQuery = null;
+    mpOrders = null;
+    mpOrderFilter = "all";
     renderMypage();
     openEl($("mypageModal"));
     startTicker();
@@ -1716,24 +1723,64 @@
     s.myOrders()
       .then(function (list) {
         if (!$("mypageOrders")) return;
-        if (!list || !list.length) {
-          box.innerHTML =
-            '<div class="lookup__empty">' +
-            "<p>아직 주문 내역이 없습니다.</p>" +
-            '<p class="lookup__empty-desc">이 계정으로 주문하면 이곳에 바로 표시됩니다. 다른 이름·연락처로 주문했다면 비회원 주문 조회를 이용해 주세요.</p>' +
-            '<button class="btn btn--ghost btn--sm" type="button" data-close-mypage>상품 보러 가기</button>' +
-            "</div>";
-          return;
-        }
-        box.innerHTML =
-          '<p class="lookup__count">' + list.length + "건의 주문을 찾았습니다.</p>" +
-          list.map(orderCard).join("");
+        mpOrders = list || [];
+        renderMypageOrders();
       })
       .catch(function (err) {
         if (!$("mypageOrders")) return;
         box.innerHTML = '<p class="lookup__hint">' +
           esc((err && err.message) || "주문 내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.") + "</p>";
       });
+  }
+
+  /* 주문 상태 필터 칩 (전체 · 입금대기 · 입금완료 · 발송완료 · 취소주문) + 건수 */
+  function renderMypageOrderFilters() {
+    var box = $("mypageOrderFilters");
+    if (!box) return;
+    var list = mpOrders || [];
+    var counts = { all: list.length, pending_payment: 0, paid: 0, shipped: 0, cancelled: 0 };
+    list.forEach(function (o) {
+      if (counts[o.status] != null) counts[o.status]++;
+    });
+    var chips = [
+      { k: "all", label: "전체" },
+      { k: "pending_payment", label: "입금대기" },
+      { k: "paid", label: "입금완료" },
+      { k: "shipped", label: "발송완료" },
+      { k: "cancelled", label: "취소주문" }
+    ];
+    box.innerHTML = chips.map(function (c) {
+      return '<button class="chip" type="button" data-order-filter="' + c.k + '" aria-pressed="' +
+        (mpOrderFilter === c.k ? "true" : "false") + '">' + c.label +
+        '<span class="chip__n">' + (counts[c.k] || 0) + "</span></button>";
+    }).join("");
+  }
+
+  function renderMypageOrders() {
+    var box = $("mypageOrders");
+    if (!box) return;
+    renderMypageOrderFilters();
+
+    var all = mpOrders || [];
+    var list = mpOrderFilter === "all" ? all : all.filter(function (o) { return o.status === mpOrderFilter; });
+
+    if (!list.length) {
+      box.innerHTML =
+        '<div class="lookup__empty">' +
+        "<p>" + (all.length ? "이 상태의 주문이 없습니다." : "아직 주문 내역이 없습니다.") + "</p>" +
+        '<p class="lookup__empty-desc">' +
+        (all.length
+          ? "다른 상태 칩을 눌러 보세요."
+          : "이 계정으로 주문하면 이곳에 바로 표시됩니다. 다른 이름·연락처로 주문했다면 비회원 주문 조회를 이용해 주세요.") +
+        "</p>" +
+        (all.length ? "" : '<button class="btn btn--ghost btn--sm" type="button" data-close-mypage>상품 보러 가기</button>') +
+        "</div>";
+      return;
+    }
+
+    box.innerHTML =
+      '<p class="lookup__count">' + list.length + "건의 주문을 찾았습니다.</p>" +
+      list.map(orderCard).join("");
   }
 
   function fillMypagePoints(data) {
@@ -2020,6 +2067,13 @@
       if (mpTab) {
         e.preventDefault();
         setMypageTab(mpTab.getAttribute("data-mypage-tab"));
+        return;
+      }
+      var mpFilter = t.closest("#mypageOrderFilters [data-order-filter]");
+      if (mpFilter) {
+        e.preventDefault();
+        mpOrderFilter = mpFilter.getAttribute("data-order-filter") || "all";
+        renderMypageOrders();
         return;
       }
       if (t.closest("[data-close-mypage]")) {

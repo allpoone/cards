@@ -75,6 +75,8 @@ alter table public.orders
   add column if not exists earned_points integer not null default 0;
 alter table public.orders
   add column if not exists points_awarded boolean not null default false;
+alter table public.orders
+  add column if not exists admin_hidden boolean not null default false;
 
 -- 예전 데이터 보정 (음수 방지)
 update public.orders set used_points = 0 where used_points < 0;
@@ -339,6 +341,7 @@ as $$
   select jsonb_build_object(
     'order_no',       o.order_no,
     'status',         o.status,
+    'admin_hidden',   coalesce(o.admin_hidden, false),
     'created_at',     o.created_at,
     'updated_at',     o.updated_at,
     'paid_at',        o.paid_at,
@@ -1226,8 +1229,39 @@ comment on function public.admin_delete_product(text, text) is
 
 
 -- ============================================================
--- 12-1. 사장님: 주문 삭제 (취소·발송완료 주문만)
+-- 12-1. 사장님: 주문 삭제(취소) · 목록에서 숨기기(발송완료)
 -- ============================================================
+create or replace function public.admin_list_orders(
+  p_pin    text default null,
+  p_status text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_result jsonb;
+begin
+  perform private.assert_admin(p_pin);
+
+  perform public.expire_unpaid_orders();
+
+  select coalesce(jsonb_agg(public.order_json(o.id) order by o.created_at desc), '[]'::jsonb)
+    into v_result
+    from (
+      select o.id, o.created_at
+        from public.orders o
+       where coalesce(o.admin_hidden, false) = false
+         and (p_status is null or p_status = '' or o.status = p_status)
+       order by o.created_at desc
+       limit 300
+    ) o;
+
+  return coalesce(v_result, '[]'::jsonb);
+end;
+$$;
+
 create or replace function public.admin_delete_order(
   p_order_no text,
   p_pin      text default null
@@ -1253,19 +1287,25 @@ begin
       using errcode = '22023';
   end if;
 
-  if v_order.status not in ('cancelled', 'shipped') then
-    raise exception '취소되거나 발송 완료된 주문만 삭제할 수 있습니다.'
+  if v_order.status = 'cancelled' then
+    delete from public.orders where id = v_order.id;
+    return jsonb_build_object('action', 'deleted', 'order_no', v_order.order_no);
+  elsif v_order.status = 'shipped' then
+    update public.orders
+       set admin_hidden = true,
+           updated_at   = now()
+     where id = v_order.id;
+    return jsonb_build_object('action', 'hidden', 'order_no', v_order.order_no);
+  else
+    raise exception '취소되거나 발송 완료된 주문만 정리할 수 있습니다.'
       using errcode = '22023';
   end if;
-
-  delete from public.orders where id = v_order.id;
-
-  return jsonb_build_object('deleted', true, 'order_no', v_order.order_no);
 end;
 $$;
 
 comment on function public.admin_delete_order(text, text) is
-  '관리자용 주문 삭제. 취소(cancelled)·발송완료(shipped) 주문만 지울 수 있고, order_items 는 on delete cascade 로 함께 지워집니다.';
+  '관리자용 주문 정리. 취소(cancelled) 주문은 완전히 삭제하고, 발송완료(shipped) 주문은 admin_hidden = true 로 사장님 목록에서만 숨깁니다.';
+
 
 
 -- ============================================================
@@ -1495,6 +1535,7 @@ grant execute on function public.admin_set_point_rate(numeric, text)     to anon
 grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric, boolean) to anon, authenticated;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
 grant execute on function public.admin_delete_product(text, text)          to anon, authenticated;
+grant execute on function public.admin_list_orders(text, text)            to anon, authenticated;
 grant execute on function public.admin_delete_order(text, text)            to anon, authenticated;
 grant execute on function public.admin_list_member_points(text, integer, text) to anon, authenticated;
 grant execute on function public.admin_adjust_points(uuid, integer, text, text) to anon, authenticated;

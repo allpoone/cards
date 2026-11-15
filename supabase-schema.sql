@@ -191,6 +191,7 @@ create table if not exists public.orders (
   used_points     integer not null default 0,
   earned_points   integer not null default 0,
   points_awarded  boolean not null default false,
+  admin_hidden    boolean not null default false,
   paid_at         timestamptz,
   shipped_at      timestamptz,
   cancelled_at    timestamptz,
@@ -203,6 +204,8 @@ create index if not exists orders_created_idx on public.orders (created_at desc)
 -- 1차 스키마로 이미 만든 orders 테이블에도 회원 컬럼을 붙입니다.
 alter table public.orders
   add column if not exists user_id uuid references auth.users (id) on delete set null;
+alter table public.orders
+  add column if not exists admin_hidden boolean not null default false;
 
 -- 적립금: 사용한 포인트 / 적립 예정(또는 완료) 포인트 / 실제 지급 여부
 alter table public.orders add column if not exists used_points    integer not null default 0;
@@ -568,6 +571,7 @@ as $$
   select jsonb_build_object(
     'order_no',       o.order_no,
     'status',         o.status,
+    'admin_hidden',   coalesce(o.admin_hidden, false),
     'created_at',     o.created_at,
     'updated_at',     o.updated_at,
     'paid_at',        o.paid_at,
@@ -1133,7 +1137,8 @@ begin
     from (
       select o.id, o.created_at
         from public.orders o
-       where p_status is null or p_status = '' or o.status = p_status
+       where coalesce(o.admin_hidden, false) = false
+         and (p_status is null or p_status = '' or o.status = p_status)
        order by o.created_at desc
        limit 300
     ) o;
@@ -1389,7 +1394,7 @@ $$;
 comment on function public.admin_delete_product(text, text) is
   '관리자용 상품 삭제. 주문 이력이 있어도 지우며, order_items 의 영수증 기록(이름·가격·수량)은 그대로 남습니다.';
 
--- 사장님: 주문 삭제 (취소·발송완료 주문만). order_items 는 on delete cascade 로 함께 지워집니다.
+-- 사장님: 주문 정리 — 취소(cancelled)는 완전 삭제, 발송완료(shipped)는 admin_hidden = true 로 목록에서 숨김.
 create or replace function public.admin_delete_order(
   p_order_no text,
   p_pin      text default null
@@ -1415,14 +1420,19 @@ begin
       using errcode = '22023';
   end if;
 
-  if v_order.status not in ('cancelled', 'shipped') then
-    raise exception '취소되거나 발송 완료된 주문만 삭제할 수 있습니다.'
+  if v_order.status = 'cancelled' then
+    delete from public.orders where id = v_order.id;
+    return jsonb_build_object('action', 'deleted', 'order_no', v_order.order_no);
+  elsif v_order.status = 'shipped' then
+    update public.orders
+       set admin_hidden = true,
+           updated_at   = now()
+     where id = v_order.id;
+    return jsonb_build_object('action', 'hidden', 'order_no', v_order.order_no);
+  else
+    raise exception '취소되거나 발송 완료된 주문만 정리할 수 있습니다.'
       using errcode = '22023';
   end if;
-
-  delete from public.orders where id = v_order.id;
-
-  return jsonb_build_object('deleted', true, 'order_no', v_order.order_no);
 end;
 $$;
 

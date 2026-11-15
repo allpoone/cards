@@ -2279,3 +2279,7 @@ body.auth-pending #headerUser { visibility: hidden; }
   border-top: 1px dashed var(--line-strong);
 }
 .mypage__orders .lookup__count { margin-top: 0; }
+
+/* 마이페이지 주문 내역: 상태 필터 칩 */
+.mypage__order-filters { margin: 0 0 12px; }
+.mypage__order-filters .chip { padding: 6px 11px; font-size: 0.76rem; }

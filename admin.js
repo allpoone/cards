@@ -382,7 +382,7 @@
     if (o.status === "shipped") {
       return (
         '<span class="aorder__done">발송 처리 완료</span>' +
-        '<button class="btn btn--danger btn--xs aorder__primary" type="button" data-del-order="' + no + '">삭제</button>'
+        '<button class="btn btn--ghost btn--xs aorder__primary" type="button" data-del-order="' + no + '">목록에서 숨기기</button>'
       );
     }
     return (
@@ -440,7 +440,8 @@
   function renderOrders() {
     var counts = { pending_payment: 0, paid: 0, shipped: 0, cancelled: 0 };
     var revenue = 0;
-    orders.forEach(function (o) {
+    var visible = orders.filter(function (o) { return o.admin_hidden !== true; });
+    visible.forEach(function (o) {
       if (counts[o.status] != null) counts[o.status]++;
       if (o.status === "paid" || o.status === "shipped") revenue += Number(o.total_amount) || 0;
     });
@@ -449,7 +450,7 @@
     $("statPaid").textContent = counts.paid;
     $("statShipped").textContent = counts.shipped;
     $("statRevenue").textContent = won(revenue);
-    $("cntAll").textContent = orders.length;
+    $("cntAll").textContent = visible.length;
     $("cntPending").textContent = counts.pending_payment;
     $("cntPaid").textContent = counts.paid;
     $("cntShipped").textContent = counts.shipped;
@@ -461,6 +462,7 @@
     }
 
     var list = orders.filter(function (o) {
+      if (o.admin_hidden === true) return false;
       return filter === "all" ? true : o.status === filter;
     });
 
@@ -474,23 +476,28 @@
   }
 
   /* ── 주문 상태 변경 ───────────────────────────────────── */
-  /* 취소·발송완료 주문 삭제 */
+  /* 취소 주문은 삭제, 발송완료 주문은 사장님 목록에서만 숨김 */
   function askDeleteOrder(orderNo) {
     var s = window.APOStore;
     if (!s || !s.deleteOrder) {
-      toast("주문 삭제를 사용할 수 없습니다.", "warn");
+      toast("주문 정리를 사용할 수 없습니다.", "warn");
       return;
     }
-    var ok = window.confirm(
-      orderNo + " 주문을 삭제할까요?\n삭제한 주문은 되돌릴 수 없고, 주문 안의 상품 기록도 함께 사라집니다."
-    );
-    if (!ok) return;
+    var target = null;
+    orders.forEach(function (o) { if (o.order_no === orderNo) target = o; });
+    var isShipped = !!target && target.status === "shipped";
 
-    s.deleteOrder(orderNo).then(function () {
-      toast(orderNo + " 주문을 삭제했습니다.", "ok");
+    var ask = isShipped
+      ? "사장님 주문 목록에서만 숨길까요?\n(손님의 주문 내역에는 그대로 남습니다.)"
+      : "취소된 주문을 완전히 삭제할까요?\n삭제하면 되돌릴 수 없고, 주문 안의 상품 기록도 함께 사라집니다.";
+    if (!window.confirm(orderNo + "\n\n" + ask)) return;
+
+    s.deleteOrder(orderNo).then(function (res) {
+      var action = (res && res.action) || (isShipped ? "hidden" : "deleted");
+      toast(orderNo + " · " + (action === "hidden" ? "주문 목록에서 숨겼습니다." : "주문을 삭제했습니다."), "ok");
       return loadOrders();
     }).catch(function (err) {
-      toast((err && err.message) || "주문을 삭제하지 못했습니다.", "warn");
+      toast((err && err.message) || "주문을 정리하지 못했습니다.", "warn");
     });
   }
 

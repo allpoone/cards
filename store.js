@@ -1250,17 +1250,27 @@
         return Promise.reject(e0);
       }
       saveOrders(kept);
-      return Promise.resolve(true);
+      return Promise.resolve({ action: "deleted", order_no: no });
     }
 
-    /* p_pin 은 null — 서버가 JWT(app_metadata.role = 'admin')로 관리자를 확인합니다. */
+    /* p_pin 은 null — 서버가 JWT(app_metadata.role = 'admin')로 관리자를 확인합니다.
+       취소 주문은 삭제, 발송완료 주문은 admin_hidden = true 로 목록에서만 숨깁니다. */
     return rpc("admin_delete_order", { p_order_no: no, p_pin: null })
-      .then(function () {
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
         emit("orders");
-        return true;
+        return raw || { action: "deleted", order_no: no };
       })
       .catch(function (err) {
-        if (rpcMissing(err)) throw upgradeNeeded();
+        if (rpcMissing(err)) {
+          var e1 = new Error(
+            "주문 정리(삭제·숨기기)는 DB 패치가 필요합니다. " +
+            "Supabase SQL Editor 에서 supabase-patch-delete-order.sql 을 한 번 실행해 주세요."
+          );
+          e1.code = "NEED_UPGRADE";
+          throw e1;
+        }
+        if (err && err.code === "22023") throw err;
         throw err;
       });
   }
