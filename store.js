@@ -1090,11 +1090,16 @@
       p_stock: clampInt(data.stock, 0, 99999),
       p_subtitle: data.subtitle == null ? (prev ? prev.subtitle : null) : String(data.subtitle).trim(),
       p_image_url: data.image_url == null ? (prev ? prev.image_url : null) : String(data.image_url).trim(),
-      p_earn_points: data.earn_points === undefined
-        ? (prev ? prev.earn_points !== false : true)
-        : !!data.earn_points,
       p_pin: null,
     };
+
+    /* 적립금 칸(earn_points)이 실제로 있는 DB에서만 보냅니다.
+       업그레이드 전 DB에서는 예전 그대로 상품 저장이 됩니다. */
+    if (dbColumns === "points") {
+      payload.p_earn_points = data.earn_points === undefined
+        ? (prev ? prev.earn_points !== false : true)
+        : !!data.earn_points;
+    }
 
     function done(res) {
       var row = res || {};
@@ -1109,7 +1114,7 @@
       payload.p_type === prev.type && payload.p_game === prev.game &&
       (payload.p_edition || "") === (prev.edition || "") &&
       payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url &&
-      payload.p_earn_points === (prev.earn_points !== false);
+      (dbColumns !== "points" || payload.p_earn_points === (prev.earn_points !== false));
 
     if (onlyBasic) {
       return rpc("admin_update_product", {
