@@ -9,8 +9,8 @@
 <link rel="icon" type="image/png" sizes="160x160" href="logo-160.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160308" />
-<link rel="stylesheet" href="admin.css?v=202611160308" />
+<link rel="stylesheet" href="styles.css?v=202611160326" />
+<link rel="stylesheet" href="admin.css?v=202611160326" />
 </head>
 <body class="admin-body">
 
@@ -39,8 +39,14 @@
 
 <main class="wrap admin-main">
 
+  <!-- 관리자 확인 중 (로그인 창이 번쩍이지 않게) -->
+  <div class="admin-loading" id="adminLoading" role="status" aria-live="polite">
+    <span class="admin-loading__spin" aria-hidden="true"></span>
+    <span class="admin-loading__text">사장님 페이지 확인 중…</span>
+  </div>
+
   <!-- ── 잠금 화면 ─────────────────────────────────────── -->
-  <section class="lock" id="adminLock">
+  <section class="lock" id="adminLock" hidden>
     <div class="lock__card">
       <p class="lock__eyebrow">OWNER ONLY</p>
       <h1 class="lock__title">사장님 페이지</h1>
@@ -198,7 +204,7 @@
       <header class="panel__head">
         <div>
           <h2 class="panel__title">상품 관리</h2>
-          <p class="panel__desc">상품명·가격·재고·사진·적립률(%)을 고치고 [저장]을 누르면 손님 사이트에 바로 반영됩니다. 재고가 0이면 자동 품절 처리됩니다.</p>
+          <p class="panel__desc">상품명·가격·재고·사진·적립률(%)을 고치고 [저장]을 누르면 손님 사이트에 바로 반영됩니다. [손님 화면에서 숨기기]를 체크하면 목록에서 숨김(비공개) 상태로 남습니다. 재고가 0이면 자동 품절 처리됩니다.</p>
         </div>
         <div class="panel__actions">
           <button class="btn btn--gold btn--sm" type="button" id="newProductBtn">+ 새 상품 추가</button>
@@ -217,8 +223,8 @@
 
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160308"></script>
-<script src="store.js?v=202611160308"></script>
-<script src="admin.js?v=202611160308"></script>
+<script src="cards.js?v=202611160326"></script>
+<script src="store.js?v=202611160326"></script>
+<script src="admin.js?v=202611160326"></script>
 </body>
 </html>

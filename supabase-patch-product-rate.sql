@@ -4,8 +4,16 @@ alter table public.products drop constraint if exists products_point_rate_check;
 alter table public.products add constraint products_point_rate_check
   check (point_rate is null or point_rate between 0 and 50);
 
+alter table public.products add column if not exists is_hidden boolean not null default false;
+
+alter table public.order_items alter column product_id drop not null;
+alter table public.order_items drop constraint if exists order_items_product_id_fkey;
+alter table public.order_items add constraint order_items_product_id_fkey
+  foreign key (product_id) references public.products (id) on delete set null;
+
 drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text);
 drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text);
+drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric);
 
 create or replace function public.admin_upsert_product(
   p_id          text,
@@ -19,7 +27,8 @@ create or replace function public.admin_upsert_product(
   p_image_url   text default null,
   p_earn_points boolean default true,
   p_pin         text default null,
-  p_point_rate  numeric default null
+  p_point_rate  numeric default null,
+  p_is_hidden   boolean default null
 )
 returns jsonb
 language plpgsql
@@ -92,7 +101,7 @@ begin
 
     insert into public.products (
       id, name, type, game, edition, price, stock, status, sort_order,
-      subtitle, image_url, earn_points, point_rate, updated_at
+      subtitle, image_url, earn_points, point_rate, is_hidden, updated_at
     ) values (
       v_id, btrim(p_name), p_type, p_game, v_edition, p_price, p_stock,
       case when p_stock = 0 then 'sold' else 'available' end,
@@ -101,6 +110,7 @@ begin
       nullif(btrim(coalesce(p_image_url, '')), ''),
       v_earn,
       v_rate,
+      coalesce(p_is_hidden, false),
       now()
     )
     returning * into v_row;
@@ -123,6 +133,7 @@ begin
            image_url = nullif(btrim(coalesce(p_image_url, '')), ''),
            earn_points = v_earn,
            point_rate  = coalesce(v_rate, point_rate),
+           is_hidden   = coalesce(p_is_hidden, is_hidden),
            updated_at = now()
      where id = v_id
     returning * into v_row;
@@ -141,6 +152,7 @@ begin
     'image_url', v_row.image_url,
     'earn_points', v_row.earn_points,
     'point_rate', v_row.point_rate,
+    'is_hidden', v_row.is_hidden,
     'created',  v_new
   );
 end;
@@ -184,8 +196,36 @@ begin
     p_image_url   := v_row.image_url,
     p_earn_points := v_row.earn_points,
     p_point_rate  := v_row.point_rate,
+    p_is_hidden   := v_row.is_hidden,
     p_pin         := p_pin
   );
+end;
+$$;
+
+create or replace function public.admin_delete_product(
+  p_id  text,
+  p_pin text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_row public.products;
+begin
+  perform private.assert_admin(p_pin);
+
+  delete from public.products
+   where id = p_id
+    returning * into v_row;
+
+  if not found then
+    raise exception '상품을 찾을 수 없습니다: %', p_id
+      using errcode = '22023';
+  end if;
+
+  return jsonb_build_object('deleted', true, 'id', p_id, 'name', v_row.name);
 end;
 $$;
 
@@ -206,6 +246,7 @@ declare
   v_item      record;
   v_stock     int;
   v_price     int;
+  v_hidden    boolean;
   v_order_id  uuid;
   v_order_no  text;
   v_suffix    text;
@@ -271,14 +312,19 @@ begin
         using errcode = '22023';
     end if;
 
-    select price, stock
-      into v_price, v_stock
+    select price, stock, is_hidden
+      into v_price, v_stock, v_hidden
       from public.products
      where id = v_item.product_id
        for update;
 
     if not found then
       raise exception '상품을 찾을 수 없습니다: %', v_item.product_id
+        using errcode = '22023';
+    end if;
+
+    if v_hidden then
+      raise exception '현재 판매 중이지 않은 상품입니다: %', v_item.product_id
         using errcode = '22023';
     end if;
 
@@ -404,11 +450,14 @@ begin
 end;
 $$;
 
-revoke all on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric) from public;
-grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric) to anon, authenticated;
+revoke all on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric, boolean) from public;
+grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric, boolean) to anon, authenticated;
 
 revoke all on function public.admin_update_product(text, text, integer, integer, text) from public;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
+
+revoke all on function public.admin_delete_product(text, text) from public;
+grant execute on function public.admin_delete_product(text, text) to anon, authenticated;
 
 revoke all on function public.place_order(jsonb, jsonb, integer) from public;
 grant execute on function public.place_order(jsonb, jsonb, integer) to anon, authenticated;

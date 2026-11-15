@@ -215,7 +215,7 @@ create index if not exists orders_user_idx on public.orders (user_id, created_at
 create table if not exists public.order_items (
   id            bigserial primary key,
   order_id      uuid not null references public.orders (id) on delete cascade,
-  product_id    text not null references public.products (id),
+  product_id    text references public.products (id) on delete set null,
   product_name  text not null,
   unit_price    integer not null check (unit_price >= 0),
   qty           integer not null check (qty > 0),
@@ -1358,7 +1358,7 @@ $$;
 comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text) is
   '관리자용 상품 추가/수정. 적립금 지급 여부(p_earn_points)까지 함께 저장.';
 
--- ── 상품 삭제 (주문 이력이 있으면 거절) ──────────────
+-- ── 상품 삭제 (주문 이력이 있어도 삭제, 영수증 기록은 유지) ──────────
 create or replace function public.admin_delete_product(
   p_id  text,
   p_pin text default null
@@ -1369,32 +1369,25 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_used integer;
+  v_row public.products;
 begin
   perform private.assert_admin(p_pin);
 
-  select count(*) into v_used
-    from public.order_items
-   where product_id = p_id;
-
-  if v_used > 0 then
-    raise exception '주문 내역이 있어 삭제할 수 없습니다. 재고를 0(품절)으로 바꿔 주세요.'
-      using errcode = '23503';
-  end if;
-
-  delete from public.products where id = p_id;
+  delete from public.products
+   where id = p_id
+    returning * into v_row;
 
   if not found then
     raise exception '상품을 찾을 수 없습니다: %', p_id
       using errcode = '22023';
   end if;
 
-  return jsonb_build_object('deleted', true, 'id', p_id);
+  return jsonb_build_object('deleted', true, 'id', p_id, 'name', v_row.name);
 end;
 $$;
 
 comment on function public.admin_delete_product(text, text) is
-  '관리자용 상품 삭제. order_items 에 묶인 상품은 삭제하지 않고 안내 메시지를 돌려줍니다.';
+  '관리자용 상품 삭제. 주문 이력이 있어도 지우며, order_items 의 영수증 기록(이름·가격·수량)은 그대로 남습니다.';
 
 -- ── 사장님 설정: 주문에 로그인 필수 여부 ───────────────────
 create or replace function public.admin_set_require_login(

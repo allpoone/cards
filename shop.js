@@ -1715,9 +1715,14 @@
     }
   }
 
+  /* 로그인 상태 확인 전 헤더 깜빡임 방지 — 확인이 끝나면 풉니다. */
+  function endAuthPending() {
+    if (document.body && document.body.classList) document.body.classList.remove("auth-pending");
+  }
+
   function boot() {
     var s = store();
-    if (!s) return;
+    if (!s) { endAuthPending(); return; }
     s.init().then(function () {
       renderModeBanner();
       renderAccount();
@@ -1725,9 +1730,16 @@
       wire();
       /* 이미 로그인된 세션이 있으면 헤더에 계정을 바로 표시 */
       if (s.loadSession) {
-        s.loadSession().then(function () { renderAccount(); });
+        s.loadSession().then(
+          function () { renderAccount(); endAuthPending(); },
+          function () { endAuthPending(); }
+        );
+      } else {
+        endAuthPending();
       }
-    });
+      /* 인증이 느리거나 막힌 경우에도 버튼은 보이게 (3초 안전장치) */
+      setTimeout(endAuthPending, 3000);
+    }, function () { endAuthPending(); });
   }
 
   if (document.readyState === "loading") {

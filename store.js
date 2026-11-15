@@ -51,7 +51,7 @@
   var dbRowById = {};
   var extraProducts = [];  // 테스트 모드에서 추가한 상품
   var extraById = {};
-  var dbColumns = "none";  // "points" | "full" | "v1" | "min" | "none"
+  var dbColumns = "none";  // "hidden" | "point_rate" | "points" | "full" | "v1" | "min" | "none"
   var settings = { requireLogin: false, pointRate: 2, ready: false, pointsReady: false };  // 사장님 공개 설정
   var readyPromise = null;
   var pointsCache = null;   // { balance, rate, transactions, at }
@@ -189,6 +189,22 @@
     return { c1: "#150d33", c2: "#7c3aed", accent: "#d5c8ff", glyph: glyph };
   }
 
+  /* DB에 어느 칸까지 있는지 — dbColumns 값에 따라 쓸 수 있는 기능을 정합니다. */
+  var DB_FEATURES = {
+    hidden:     { earn: true,  rate: true,  hidden: true },
+    point_rate: { earn: true,  rate: true,  hidden: false },
+    points:     { earn: true,  rate: false, hidden: false },
+    full:       { earn: false, rate: false, hidden: false },
+    v1:         { earn: false, rate: false, hidden: false },
+    min:        { earn: false, rate: false, hidden: false },
+    none:       { earn: false, rate: false, hidden: false },
+  };
+
+  function dbHas(feature) {
+    var f = DB_FEATURES[dbColumns];
+    return !!(f && f[feature]);
+  }
+
   /* 상품 한 건의 원본(카드 디자인 + DB 최신값) */
   function descriptor(id) {
     var base = findBase(id);
@@ -262,6 +278,10 @@
     /* 상품별 적립률(%) — DB 값이 없으면 null(상점 기본 적립률) */
     var pr = row ? row.point_rate : (local.point_rate === undefined ? d.pointRate : local.point_rate);
     out.pointRate = (pr == null || pr === "" || !isFinite(Number(pr))) ? null : Number(pr);
+    /* 숨김(비공개) — 손님 화면에서는 빼고, 사장님 페이지에서는 그대로 보입니다. */
+    out.hidden = row
+      ? row.is_hidden === true
+      : (local.is_hidden === undefined ? d.hidden === true : !!local.is_hidden);
     /* 기존 화면 함수들이 쓰는 잔여 수량 필드도 같이 맞춰 줍니다. */
     if (out.type === "oripa") out.remainingUnits = stock;
     else out.remaining = stock;
@@ -295,10 +315,12 @@
     return ids;
   }
 
-  function products() {
+  /* 손님에게 보여줄 상품 (숨김 상품은 빠집니다). includeHidden=true 면 사장님용 전체 목록 */
+  function products(includeHidden) {
     return productIds()
       .map(function (id) { return view(descriptor(id)); })
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter(function (p) { return includeHidden ? true : p.hidden !== true; });
   }
 
   function getProduct(id) {
@@ -334,7 +356,7 @@
     var changed = false;
     list.forEach(function (line) {
       var p = getProduct(line.id);
-      if (!p) { changed = true; return; }
+      if (!p || p.hidden) { changed = true; return; }
       var qty = Math.min(line.qty, p.stock);
       if (qty <= 0) { changed = true; return; }
       if (qty !== line.qty) changed = true;
@@ -368,6 +390,7 @@
   function addToCart(id, qty) {
     var p = getProduct(id);
     if (!p) return { ok: false, reason: "not_found", message: "상품을 찾을 수 없습니다." };
+    if (p.hidden) return { ok: false, reason: "hidden", message: "현재 판매 중이지 않은 상품입니다." };
     if (p.soldOut) return { ok: false, reason: "soldout", message: "품절된 상품입니다." };
 
     var add = clampInt(qty, 1, p.stock);
@@ -645,6 +668,7 @@
   }
 
   var PRODUCT_FIELDS = {
+    hidden:     "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden",
     point_rate: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate",
     points: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points",
     full:   "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order",
@@ -675,6 +699,8 @@
         var n = Number(v);
         return isFinite(n) ? n : null;
       })(),
+      /* 숨김(비공개) — is_hidden 칸이 없는 DB에서는 모두 공개로 봅니다. */
+      is_hidden: r.is_hidden === true,
     };
   }
 
@@ -695,10 +721,10 @@
     });
   }
 
-  /* 새 열(subtitle·image_url·적립률)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
+  /* 새 열(subtitle·image_url·적립률·숨김)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
   function fetchDbProducts() {
     return connectDb().then(function (c) {
-      var order = ["point_rate", "points", "full", "v1", "min"];
+      var order = ["hidden", "point_rate", "points", "full", "v1", "min"];
       function attempt(i) {
         return c.from("products").select(PRODUCT_FIELDS[order[i]]).then(function (res) {
           if (res.error) {
@@ -1005,6 +1031,7 @@
     var subtitle = String(data.subtitle == null ? (prev.subtitle || "") : data.subtitle).trim();
     var image = String(data.image_url == null ? (prev.image_url || "") : data.image_url).trim();
     var earnPoints = data.earn_points === undefined ? (prev.earn_points !== false) : !!data.earn_points;
+    var hidden = data.is_hidden === undefined ? (prev.is_hidden === true) : !!data.is_hidden;
     var pointRate = data.point_rate === undefined
       ? (prev.point_rate == null ? null : Number(prev.point_rate))
       : (data.point_rate == null || data.point_rate === "" ? null : Number(data.point_rate));
@@ -1019,7 +1046,7 @@
 
     if (base && !prev.id) {
       /* cards.js 상품: 로컬 수정값만 덮어쓰기 */
-      productState[id] = { name: name, price: price, stock: stock, status: status, earn_points: earnPoints, point_rate: pointRate };
+      productState[id] = { name: name, price: price, stock: stock, status: status, earn_points: earnPoints, point_rate: pointRate, is_hidden: hidden };
     } else {
       var row = {
         id: id,
@@ -1036,6 +1063,7 @@
         image_url: image,
         earn_points: earnPoints,
         point_rate: pointRate,
+        is_hidden: hidden,
         sort_order: prev.sort_order || (1000 + extraProducts.length * 10),
       };
       var found = false;
@@ -1113,10 +1141,11 @@
       p_pin: null,
     };
 
-    /* 적립금 칸(earn_points)·적립률 칸(point_rate)이 실제로 있는 DB에서만 보냅니다.
+    /* 적립금 칸(earn_points)·적립률 칸(point_rate)·숨김 칸(is_hidden)이 실제로 있는 DB에서만 보냅니다.
        업그레이드 전 DB에서는 예전 그대로 상품 저장이 됩니다. */
-    var hasEarn = dbColumns === "points" || dbColumns === "point_rate";
-    var hasRate = dbColumns === "point_rate";
+    var hasEarn = dbHas("earn");
+    var hasRate = dbHas("rate");
+    var hasHidden = dbHas("hidden");
 
     if (hasEarn) {
       payload.p_earn_points = data.earn_points === undefined
@@ -1137,6 +1166,12 @@
       payload.p_point_rate = rate == null ? null : Math.round(rate * 100) / 100;
     }
 
+    if (hasHidden) {
+      payload.p_is_hidden = data.is_hidden === undefined
+        ? (prev ? prev.is_hidden === true : false)
+        : !!data.is_hidden;
+    }
+
     function done(res) {
       var row = res || {};
       return fetchDbProducts().then(function () {
@@ -1151,7 +1186,8 @@
       (payload.p_edition || "") === (prev.edition || "") &&
       payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url &&
       (!hasEarn || payload.p_earn_points === (prev.earn_points !== false)) &&
-      (!hasRate || payload.p_point_rate === (prev.point_rate == null ? null : Number(prev.point_rate)));
+      (!hasRate || payload.p_point_rate === (prev.point_rate == null ? null : Number(prev.point_rate))) &&
+      (!hasHidden || payload.p_is_hidden === (prev.is_hidden === true));
 
     if (onlyBasic) {
       return rpc("admin_update_product", {
@@ -2049,6 +2085,7 @@
     configured: wantDb,
 
     products: products,
+    allProducts: function () { return products(true); },
     getProduct: getProduct,
     unitOf: unitOf,
     won: won,
@@ -2071,6 +2108,7 @@
     uploadProductImage: uploadProductImage,
     listDepositEvents: listDepositEvents,
     dbColumns: function () { return dbColumns; },
+    dbHas: dbHas,
 
     /* 사장님 설정 · 손님 회원 */
     requireLogin: requireLogin,

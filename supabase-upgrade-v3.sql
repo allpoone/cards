@@ -53,6 +53,18 @@ alter table public.products
   add constraint products_point_rate_check
   check (point_rate is null or point_rate between 0 and 50);
 
+-- 1-2-2) 상품 숨김(비공개) — 손님 화면에서만 감추고 사장님 페이지에는 그대로 보입니다
+alter table public.products
+  add column if not exists is_hidden boolean not null default false;
+
+-- 1-2-3) 주문 상품 줄은 상품을 지워도 영수증 기록(이름·가격·수량)이 남도록
+--   product_id 는 '있으면 연결'로 두고, 상품이 지워지면 NULL 이 됩니다.
+alter table public.order_items alter column product_id drop not null;
+alter table public.order_items drop constraint if exists order_items_product_id_fkey;
+alter table public.order_items
+  add constraint order_items_product_id_fkey
+  foreign key (product_id) references public.products (id) on delete set null;
+
 -- 1-3) 주문에 적립금 관련 값
 --   used_points   : 이 주문에서 사용한 적립금
 --   earned_points : 이 주문으로 받을(받은) 적립금
@@ -390,6 +402,7 @@ declare
   v_item      record;
   v_stock     int;
   v_price     int;
+  v_hidden    boolean;
   v_order_id  uuid;
   v_order_no  text;
   v_suffix    text;
@@ -455,14 +468,19 @@ begin
         using errcode = '22023';
     end if;
 
-    select price, stock
-      into v_price, v_stock
+    select price, stock, is_hidden
+      into v_price, v_stock, v_hidden
       from public.products
      where id = v_item.product_id
        for update;
 
     if not found then
       raise exception '상품을 찾을 수 없습니다: %', v_item.product_id
+        using errcode = '22023';
+    end if;
+
+    if v_hidden then
+      raise exception '현재 판매 중이지 않은 상품입니다: %', v_item.product_id
         using errcode = '22023';
     end if;
 
@@ -976,10 +994,11 @@ comment on function public.admin_set_point_rate(numeric, text) is
 
 
 -- ============================================================
--- 12. 상품 추가·수정 — 적립금 지급 ON/OFF · 상품별 적립률(%) 포함
+-- 12. 상품 추가·수정·삭제 — 적립금 지급 ON/OFF · 적립률(%) · 숨김(비공개) 포함
 -- ============================================================
 drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text);
 drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text);
+drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric);
 
 create or replace function public.admin_upsert_product(
   p_id          text,
@@ -993,7 +1012,8 @@ create or replace function public.admin_upsert_product(
   p_image_url   text default null,
   p_earn_points boolean default true,
   p_pin         text default null,
-  p_point_rate  numeric default null
+  p_point_rate  numeric default null,
+  p_is_hidden   boolean default null
 )
 returns jsonb
 language plpgsql
@@ -1066,7 +1086,7 @@ begin
 
     insert into public.products (
       id, name, type, game, edition, price, stock, status, sort_order,
-      subtitle, image_url, earn_points, point_rate, updated_at
+      subtitle, image_url, earn_points, point_rate, is_hidden, updated_at
     ) values (
       v_id, btrim(p_name), p_type, p_game, v_edition, p_price, p_stock,
       case when p_stock = 0 then 'sold' else 'available' end,
@@ -1075,6 +1095,7 @@ begin
       nullif(btrim(coalesce(p_image_url, '')), ''),
       v_earn,
       v_rate,
+      coalesce(p_is_hidden, false),
       now()
     )
     returning * into v_row;
@@ -1097,6 +1118,7 @@ begin
            image_url = nullif(btrim(coalesce(p_image_url, '')), ''),
            earn_points = v_earn,
            point_rate  = coalesce(v_rate, point_rate),
+           is_hidden   = coalesce(p_is_hidden, is_hidden),
            updated_at = now()
      where id = v_id
     returning * into v_row;
@@ -1115,13 +1137,14 @@ begin
     'image_url', v_row.image_url,
     'earn_points', v_row.earn_points,
     'point_rate', v_row.point_rate,
+    'is_hidden', v_row.is_hidden,
     'created',  v_new
   );
 end;
 $$;
 
-comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric) is
-  '관리자용 상품 추가/수정. 적립금 지급 여부(p_earn_points)와 상품별 적립률(p_point_rate)까지 함께 저장.';
+comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric, boolean) is
+  '관리자용 상품 추가/수정. 적립금 지급 여부(p_earn_points)·상품별 적립률(p_point_rate)·숨김 여부(p_is_hidden)까지 함께 저장.';
 
 create or replace function public.admin_update_product(
   p_product_id text,
@@ -1161,13 +1184,45 @@ begin
     p_image_url   := v_row.image_url,
     p_earn_points := v_row.earn_points,
     p_point_rate  := v_row.point_rate,
+    p_is_hidden   := v_row.is_hidden,
     p_pin         := p_pin
   );
 end;
 $$;
 
 comment on function public.admin_update_product(text, text, integer, integer, text) is
-  '관리자용 상품명·가격·재고 동시 수정. 적립 여부·적립률 등 나머지 값은 유지.';
+  '관리자용 상품명·가격·재고 동시 수정. 적립 여부·적립률·숨김 여부 등 나머지 값은 유지.';
+
+-- ── 상품 삭제 (주문 이력이 있어도 삭제, 영수증 기록은 유지) ──────
+create or replace function public.admin_delete_product(
+  p_id  text,
+  p_pin text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_row public.products;
+begin
+  perform private.assert_admin(p_pin);
+
+  delete from public.products
+   where id = p_id
+    returning * into v_row;
+
+  if not found then
+    raise exception '상품을 찾을 수 없습니다: %', p_id
+      using errcode = '22023';
+  end if;
+
+  return jsonb_build_object('deleted', true, 'id', p_id, 'name', v_row.name);
+end;
+$$;
+
+comment on function public.admin_delete_product(text, text) is
+  '관리자용 상품 삭제. 주문 이력이 있어도 지우며, order_items 의 영수증 기록(이름·가격·수량)은 그대로 남습니다.';
 
 
 -- ============================================================
@@ -1394,8 +1449,9 @@ grant execute on function public.auto_confirm_deposit(text, text)        to anon
 grant execute on function public.expire_unpaid_orders()                  to anon, authenticated;
 grant execute on function public.cancel_my_order(text, text, text)       to anon, authenticated;
 grant execute on function public.admin_set_point_rate(numeric, text)     to anon, authenticated;
-grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric) to anon, authenticated;
+grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric, boolean) to anon, authenticated;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
+grant execute on function public.admin_delete_product(text, text)          to anon, authenticated;
 grant execute on function public.admin_list_member_points(text, integer, text) to anon, authenticated;
 grant execute on function public.admin_adjust_points(uuid, integer, text, text) to anon, authenticated;
 grant execute on function public.check_phone_available(text)             to anon, authenticated;
@@ -1412,6 +1468,7 @@ select
   (select point_rate from public.shop_public_settings where id = 1) as "기본적립률",
   (select count(*) from public.products where earn_points)          as "적립상품수",
   (select count(*) from public.products where point_rate is not null) as "상품별적립률설정",
+  (select count(*) from public.products where is_hidden)            as "숨김상품수",
   (select count(*) from public.products)                            as "전체상품수",
   (select count(*) from public.point_wallets)                       as "적립금지갑",
   (select count(*) from public.point_transactions)                  as "적립금내역",

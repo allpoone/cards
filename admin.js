@@ -92,10 +92,34 @@
 
   /* 상품별 적립률을 아직 저장할 수 없는 DB(패치 전)일 때 안내 */
   function ratePatchHint() {
-    var s = window.APOStore;
-    if (!s || s.isDemo() || !s.dbColumns) return "";
-    if (s.dbColumns() === "point_rate") return "";
+    if (dbFeature("rate")) return "";
     return '<p class="pf__note">상품별 적립률 저장은 SQL 패치(supabase-patch-product-rate.sql)를 실행한 뒤부터 됩니다. 지금은 상점 기본 적립률로 계산됩니다.</p>';
+  }
+
+  /* 이 기능이 지금 DB에서 쓸 수 있는지 (테스트 모드에서는 항상 가능) */
+  function dbFeature(name) {
+    var s = window.APOStore;
+    if (!s) return false;
+    if (s.isDemo()) return true;
+    if (!s.dbHas) return false;
+    return !!s.dbHas(name);
+  }
+
+  /* 숨김(비공개) 체크박스 — 숨김 칸이 없는 DB(패치 전)에서는 잠금 + 안내 */
+  function hiddenFieldMarkup(attr, on) {
+    var ready = dbFeature("hidden");
+    return (
+      '<div class="pf pf--wide"><span>공개 설정</span>' +
+      '<div class="pf__check">' +
+      '<label class="pf__earn"><input type="checkbox" ' + (on ? "checked " : "") + attr +
+      (ready ? "" : " disabled") + " />" +
+      " <span>손님 화면에서 숨기기 (비공개)</span></label>" +
+      "</div>" +
+      (ready
+        ? '<p class="pf__note">체크하면 손님 사이트 목록·검색·장바구니에서 빠집니다. 이 목록에서는 계속 보입니다.</p>'
+        : '<p class="pf__note">숨김 기능은 SQL 패치(supabase-patch-product-rate.sql)를 실행한 뒤부터 쓸 수 있습니다.</p>') +
+      "</div>"
+    );
   }
 
   /* 체크박스에 맞춰 적립률 입력칸을 켜고 끕니다. */
@@ -185,6 +209,8 @@
   }
 
   function showApp(user) {
+    var loading = $("adminLoading");
+    if (loading) loading.hidden = true;
     $("adminLock").hidden = true;
     $("adminApp").hidden = false;
     var out = $("logoutBtn");
@@ -197,6 +223,8 @@
   }
 
   function showLock(message) {
+    var loading = $("adminLoading");
+    if (loading) loading.hidden = true;
     $("adminApp").hidden = true;
     $("adminLock").hidden = false;
     $("logoutBtn").hidden = true;
@@ -493,17 +521,23 @@
     return '<span class="prow__earn" title="입금 확인 시 적립">적립 ' + esc(t) + "%</span>";
   }
 
+  function hiddenBadgeMarkup(p) {
+    if (!p || p.hidden !== true) return "";
+    return '<span class="prow__hide" title="손님 화면에서 숨김">숨김</span>';
+  }
+
   function productRow(p) {
     var st = stockState(p);
     var fid = "photo-" + p.id;
     return (
-      '<article class="prow" data-id="' + esc(p.id) + '">' +
+      '<article class="prow" data-id="' + esc(p.id) + '"' + (p.hidden === true ? ' data-hidden="true"' : "") + ">" +
       '<div class="prow__top">' +
       '<div class="prow__thumb" data-id="' + esc(p.id) + '">' + thumbMarkup(p) + "</div>" +
       '<div class="prow__meta">' +
       '<b class="prow__title" data-title>' + esc(p.name) + "</b>" +
       '<span class="prow__sub" data-sub>' + esc(rowMeta(p)) + "</span>" +
       earnBadgeMarkup(p) +
+      hiddenBadgeMarkup(p) +
       "</div>" +
       '<span class="prow__state" data-status="' + st.cls + '">' + st.label + "</span>" +
       '<button class="btn btn--ghost btn--xs" type="button" data-edit-toggle>수정</button>' +
@@ -524,6 +558,7 @@
       '<label class="pf"><span>재고</span>' +
       '<input type="number" inputmode="numeric" min="0" max="99999" data-field="stock" value="' + p.stock + '" /></label>' +
       earnFieldMarkup('data-earn-toggle data-field="earn_points"', 'data-earn-rate data-field="point_rate"', p.earnPoints !== false, p.pointRate) +
+      hiddenFieldMarkup('data-field="is_hidden"', p.hidden === true) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || "") + '" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
@@ -556,7 +591,7 @@
     if (!s) return;
     var host = $("stockList");
     if (!host) return;
-    var list = s.products();
+    var list = s.allProducts ? s.allProducts() : s.products();
 
     host.innerHTML = list.length
       ? list.map(productRow).join("")
@@ -585,6 +620,7 @@
       '<label class="pf"><span>재고 <em>*</em></span>' +
       '<input type="number" id="npStock" inputmode="numeric" min="0" max="99999" value="1" /></label>' +
       earnFieldMarkup('id="npEarn" data-earn-toggle', 'id="npRate" data-earn-rate', true, shopRateText()) +
+      hiddenFieldMarkup('id="npHidden" data-field="is_hidden"', false) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
@@ -647,6 +683,7 @@
       image_url: ($("npImageUrl").value || "").trim(),
       earn_points: $("npEarn") ? !!$("npEarn").checked : true,
       point_rate: rate,
+      is_hidden: $("npHidden") ? !!$("npHidden").checked : false,
     };
 
     if (!data.name) {
@@ -666,7 +703,11 @@
         setBusy($("npSave"), false);
         closeNewProduct();
         renderProducts();
-        toast((p ? p.name : "상품") + "을(를) 추가했습니다. 손님 사이트에 바로 보입니다.", "ok");
+        toast(
+          (p ? p.name : "상품") + "을(를) 추가했습니다. " +
+            (data.is_hidden ? "숨김 상태라 손님 화면에는 보이지 않습니다." : "손님 사이트에 바로 보입니다."),
+          "ok"
+        );
       })
       .catch(function (err) {
         setBusy($("npSave"), false);
@@ -705,6 +746,10 @@
         return box ? !!box.checked : true;
       })(),
       point_rate: readRate(row.querySelector('[data-field="point_rate"]')),
+      is_hidden: (function () {
+        var box = row.querySelector('[data-field="is_hidden"]');
+        return box ? !!box.checked : false;
+      })(),
     };
   }
 
@@ -739,11 +784,16 @@
       image_url: values.image_url,
       earn_points: values.earn_points,
       point_rate: values.point_rate,
+      is_hidden: values.is_hidden,
     })
       .then(function (p) {
         setBusy(btn, false);
         renderProducts();
-        toast((p ? p.name : "상품") + " 저장했습니다.", "ok");
+        toast(
+          (p ? p.name : "상품") + " 저장했습니다. " +
+            (values.is_hidden ? "(숨김 — 손님 화면에는 보이지 않습니다)" : ""),
+          "ok"
+        );
       })
       .catch(function (err) {
         setBusy(btn, false);
@@ -759,12 +809,12 @@
     var titleEl = row.querySelector("[data-title]");
     if (titleEl) name = titleEl.textContent;
 
-    if (!window.confirm("[" + name + "] 상품을 삭제할까요?\n삭제하면 손님 사이트 목록에서 사라집니다.")) return;
+    if (!window.confirm("[" + name + "] 상품을 목록에서 완전히 삭제할까요?\n기존 주문 내역과 영수증 기록(상품명·금액·수량)은 그대로 남습니다.")) return;
 
     s.deleteProduct(id)
       .then(function () {
         renderProducts();
-        toast("상품을 삭제했습니다.", "ok");
+        toast("상품을 삭제했습니다. 기존 주문 내역은 그대로 남습니다.", "ok");
       })
       .catch(function (err) {
         toast((err && err.message) || "삭제하지 못했습니다.", "warn");
@@ -1273,7 +1323,13 @@
 
   function boot() {
     var s = window.APOStore;
-    if (!s) return;
+    if (!s) {
+      var loading = $("adminLoading");
+      if (loading) loading.hidden = true;
+      var lock = $("adminLock");
+      if (lock) lock.hidden = false;
+      return;
+    }
     s.init().then(function () {
       renderModeBanner();
       wire();

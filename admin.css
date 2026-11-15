@@ -278,6 +278,30 @@
 /* ── 상품 관리 머리 버튼 ──────────────────────────────── */
 .panel__actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
+/* ── 관리자 확인 중 (로그인 창 번쩍임 방지) ─────────────── */
+.admin-loading {
+  min-height: min(62vh, 520px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.admin-loading__spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--gold);
+  animation: adminSpin 0.9s linear infinite;
+}
+@keyframes adminSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .admin-loading__spin { animation: none; }
+}
+
 /* ── 주문 설정 토글 ────────────────────────────────────── */
 .set-row {
   display: flex;
@@ -373,6 +397,21 @@
   padding: 1px 7px;
   white-space: nowrap;
 }
+/* 숨김(비공개) 상품 배지 — 사장님이 한눈에 구분 */
+.prow__hide {
+  align-self: flex-start;
+  margin-top: 3px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: #ffc76b;
+  border: 1px solid rgba(255, 176, 32, 0.45);
+  background: rgba(255, 176, 32, 0.12);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.prow[data-hidden="true"] .prow__title { color: var(--text-dim); }
+.prow[data-hidden="true"] .prow__thumb { opacity: 0.55; }
 .prow__edit { padding: 4px 12px 13px; border-top: 1px solid var(--line); }
 .prow__grid { display: grid; gap: 9px; padding: 10px 0; }
 @media (min-width: 720px) { .prow__grid { grid-template-columns: 2fr 1fr 1fr; } }

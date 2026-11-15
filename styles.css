@@ -1792,6 +1792,9 @@ body.modal-open { overflow: hidden; }
 /* ── 회원: 헤더 계정 영역 ───────────────────────────────── */
 .header-account { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .icon-btn--auth { color: var(--gold-soft); border-color: rgba(227, 192, 122, 0.35); }
+/* 로그인 상태를 확인하기 전에는 헤더 로그인 버튼을 그리지 않습니다 (깜빡임 방지) */
+body.auth-pending #authOpenBtn,
+body.auth-pending #headerUser { visibility: hidden; }
 .icon-btn--auth:hover { border-color: rgba(227, 192, 122, 0.7); background: rgba(227, 192, 122, 0.12); }
 .icon-btn__label { font-size: 0.78rem; font-weight: 750; white-space: nowrap; }
 .header-user {

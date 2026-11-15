@@ -506,7 +506,8 @@
   function findProduct(id) {
     if (window.APOStore) {
       var live = APOStore.getProduct(id);
-      if (live) return live;
+      /* 숨김(비공개) 상품은 손님 화면에서 열지 않습니다. */
+      if (live) return live.hidden ? null : live;
     }
     for (var i = 0; i < PRODUCTS.length; i++) if (PRODUCTS[i].id === id) return PRODUCTS[i];
     return null;
