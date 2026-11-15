@@ -1305,6 +1305,27 @@ end;
 $$;
 
 -- ============================================================
+-- 9-1. 손님 휴대폰 번호 중복 확인
+-- ------------------------------------------------------------
+-- 회원가입 전에 같은 번호로 이미 가입된 계정이 있는지 확인합니다.
+-- (auth.users 의 user_metadata.phone 을 숫자만 비교)
+-- ============================================================
+create or replace function public.check_phone_available(p_phone text)
+returns boolean
+language sql
+security definer
+set search_path = public, auth
+as $$
+  select not exists (
+    select 1
+      from auth.users u
+     where regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g')
+         = regexp_replace(coalesce(p_phone, ''), '\D', '', 'g')
+       and regexp_replace(coalesce(p_phone, ''), '\D', '', 'g') <> ''
+  );
+$$;
+
+-- ============================================================
 -- 10. 실행 권한
 -- ============================================================
 grant execute on function public.place_order(jsonb, jsonb)          to anon, authenticated;
@@ -1318,6 +1339,7 @@ grant execute on function public.admin_delete_product(text, text)   to anon, aut
 grant execute on function public.admin_set_require_login(boolean, text) to anon, authenticated;
 grant execute on function public.auto_confirm_deposit(text, text)    to anon, authenticated;
 grant execute on function public.admin_deposit_events(text, integer) to anon, authenticated;
+grant execute on function public.check_phone_available(text)         to anon, authenticated;
 
 -- 회원 본인 주문은 로그인한 사용자만 (anon 에는 주지 않습니다)
 revoke all on function public.my_orders() from public;

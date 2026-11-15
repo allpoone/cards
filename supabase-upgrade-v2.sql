@@ -457,6 +457,23 @@ grant execute on function public.admin_update_product(text, text, integer, integ
 grant execute on function public.admin_delete_product(text, text) to anon, authenticated;
 grant execute on function public.admin_set_require_login(boolean, text) to anon, authenticated;
 
+-- 14-1) 손님 휴대폰 번호 중복 확인 (회원가입 전 중복 가입 차단)
+create or replace function public.check_phone_available(p_phone text)
+returns boolean
+language sql
+security definer
+set search_path = public, auth
+as $$
+  select not exists (
+    select 1
+      from auth.users u
+     where regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g')
+         = regexp_replace(coalesce(p_phone, ''), '\D', '', 'g')
+       and regexp_replace(coalesce(p_phone, ''), '\D', '', 'g') <> ''
+  );
+$$;
+grant execute on function public.check_phone_available(text) to anon, authenticated;
+
 -- 15) 상품 사진 저장소 (공개 읽기, 관리자만 올리기)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('product-images', 'product-images', true, 5242880,

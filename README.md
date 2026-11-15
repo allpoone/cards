@@ -231,10 +231,31 @@ DB 로 바꾸면 재고 차감이 **원자적(atomic)** 으로 처리되어, 동
   - 아이디: 영문 소문자·숫자·`_`·`-` 4~20자 (`@` 불가). 내부적으로는 `<아이디>@member.allpoone.local` 을 Supabase Auth 이메일로 써서 저장합니다.
   - 로그인 창에 `@` 가 들어간 값을 넣으면 변환 없이 그대로 이메일 로그인합니다. → 사장님은 손님 사이트에서도 본인 관리자 이메일로 로그인하면 푸터에 [사장님 페이지] 가 나타납니다.
   - `admin.html` 은 기존처럼 관리자 이메일 + 비밀번호 로그인입니다.
+  - 회원가입 시 **휴대폰 번호는 필수**입니다. (숫자 10~11자리, `01[016789]` 로 시작)
+    - 같은 번호로 이미 가입된 계정이 있으면 가입을 막습니다. → `check_phone_available` RPC 필요 (아래 SQL)
+    - DB 에 함수가 없으면 막지 않고 그냥 가입됩니다. (에러로 멈추지 않음)
+  - 가입한 이름·휴대폰 번호는 주문서에 자동으로 채워집니다. 가입된 번호가 있으면 주문서 연락처는 **수정 불가(잠금)** 로 표시됩니다. (비회원은 직접 입력)
   - 아이디 가입은 Supabase **Authentication → Sign In / Providers → Email → Confirm email** 이 꺼져 있어야 가입 직후 바로 로그인됩니다. (켜져 있으면 가입 화면에 관리자 설정 안내가 뜹니다)
   - 회원: 주문서에 이름·연락처·최근 배송지가 자동 입력되고, **[내 주문]** 에서 주문 내역을 바로 봅니다.
   - 비회원: 이름·연락처·주소를 직접 입력하고, 주문번호 또는 이름 + 연락처로 조회합니다.
 - **[로그인 필수]** 를 켜면 비회원은 주문할 수 없습니다.
+
+#### 휴대폰 번호 중복 확인 SQL (한 번만 실행)
+
+Supabase **SQL Editor** 에 붙여넣고 [Run] 하면 회원가입 중복 차단이 켜집니다.
+
+```sql
+create or replace function public.check_phone_available(p_phone text)
+returns boolean language sql security definer set search_path = public, auth as $$
+  select not exists (
+    select 1 from auth.users u
+     where regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone',''), '\D', '', 'g')
+         = regexp_replace(coalesce(p_phone,''), '\D', '', 'g')
+       and regexp_replace(coalesce(p_phone,''), '\D', '', 'g') <> ''
+  );
+$$;
+grant execute on function public.check_phone_available(text) to anon, authenticated;
+```
 - **입금대기 주문은 10분 안에 입금**해야 합니다. 지나면 자동 취소되고 재고가 되돌아갑니다.
   (주문 완료 화면과 주문 조회에 남은 시간이 표시됩니다.)
 - 입금대기 상태에서는 손님이 **[주문 취소]** 로 직접 취소할 수 있습니다. (입금 확인 후에는 오픈톡 문의)

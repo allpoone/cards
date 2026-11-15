@@ -351,6 +351,9 @@
     };
     var demo = s.isDemo();
 
+    /* 가입된 계정에 휴대폰 번호가 있으면 주문서에서 자동 입력 + 수정 불가 */
+    var phoneLocked = !!(user && meta && meta.phone);
+
     var accountLine = user
       ? '<p class="co__member">' + esc(userLabel(user)) + "님 계정으로 주문합니다. <span>" + esc(userContact(user)) + "</span></p>"
       : '<div class="co__guest">' +
@@ -384,7 +387,11 @@
       "</div>" +
       '<div class="field">' +
       '<label for="coPhone">연락처(휴대폰) <span class="req">*</span></label>' +
-      '<input id="coPhone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" value="' + esc(buyer.phone || "") + '" />' +
+      '<input id="coPhone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" value="' + esc(buyer.phone || "") + '"' +
+      (phoneLocked ? ' readonly aria-readonly="true" class="is-locked"' : "") + " />" +
+      (phoneLocked
+        ? '<p class="field__hint"><b>가입된 번호</b>로 주문합니다. 번호를 바꾸려면 사장님께 오픈톡으로 문의해 주세요.</p>'
+        : "") +
       '<p class="field__err" data-err="coPhone" hidden></p>' +
       "</div>" +
       "</fieldset>" +
@@ -1028,11 +1035,12 @@
           '<input id="authName" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" />' +
           "</div>" +
           '<div class="field">' +
-          '<label for="authPhone">연락처 <span class="opt">(선택)</span></label>' +
+          '<label for="authPhone">휴대폰 번호 <span class="req">*</span></label>' +
           '<input id="authPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" />' +
+          '<p class="field__err" data-err="authPhone" hidden></p>' +
           "</div>" +
           "</div>" +
-          '<p class="field__hint">이름·연락처는 주문서 자동 입력에 쓰입니다. 나중에 바꿀 수 있습니다.</p>'
+          '<p class="field__hint">휴대폰 번호는 주문서에 자동으로 채워집니다. 같은 번호로는 한 번만 가입할 수 있습니다.</p>'
         : "") +
       '<p class="auth__error" id="authError" role="alert" hidden></p>' +
       '<button class="btn btn--gold btn--block" type="submit" id="authSubmit"' + (demo ? " disabled" : "") + ">" +
@@ -1169,18 +1177,46 @@
     var name = $("authName") ? ($("authName").value || "").trim() : "";
     var phone = $("authPhone") ? digits($("authPhone").value) : "";
 
+    if (isSignup) {
+      if (!phone) {
+        setAuthError("휴대폰 번호를 입력해 주세요.");
+        if ($("authPhone")) $("authPhone").focus();
+        return;
+      }
+      if (!/^01[016789][0-9]{7,8}$/.test(phone)) {
+        setAuthError("휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)");
+        if ($("authPhone")) $("authPhone").focus();
+        return;
+      }
+    }
+
     setAuthBusy(true, isSignup ? "가입 중…" : "로그인 중…");
 
-    var task = isSignup
-      ? s.signUpUser(loginRaw, pw, { name: name, phone: phone })
-      : s.signInUser(loginRaw, pw);
+    /* 가입 전에 같은 번호가 있는지 확인 — DB 함수가 없으면 그냥 진행합니다. */
+    var ready = isSignup && s.checkPhoneAvailable
+      ? s.checkPhoneAvailable(phone)
+      : Promise.resolve({ ok: true });
 
-    task.then(function (res) {
-      afterAuth(res, isSignup);
-    }).catch(function (err) {
-      setAuthBusy(false);
-      setAuthError((err && err.message) || (isSignup ? "가입하지 못했습니다." : "로그인하지 못했습니다."));
-    });
+    ready
+      .then(function (chk) {
+        if (chk && chk.ok === false) {
+          setAuthBusy(false);
+          setAuthError("이미 가입된 휴대폰 번호입니다.");
+          if ($("authPhone")) $("authPhone").focus();
+          return null;
+        }
+        return isSignup
+          ? s.signUpUser(loginRaw, pw, { name: name, phone: phone })
+          : s.signInUser(loginRaw, pw);
+      })
+      .then(function (res) {
+        if (!res) return;
+        afterAuth(res, isSignup);
+      })
+      .catch(function (err) {
+        setAuthBusy(false);
+        setAuthError((err && err.message) || (isSignup ? "가입하지 못했습니다." : "로그인하지 못했습니다."));
+      });
   }
 
   function doLogoutUser() {

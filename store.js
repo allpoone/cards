@@ -1475,6 +1475,30 @@
       });
   }
 
+  /* 가입 전 휴대폰 번호 중복 확인 — 서버 함수 check_phone_available(p_phone).
+     함수가 아직 없으면(404/PGRST202) 막지 않고 그냥 통과합니다. */
+  function checkPhoneAvailable(phone) {
+    var p = digits(phone);
+    if (!p) return Promise.resolve({ ok: true, checked: false });
+    if (mode !== "db") return Promise.resolve({ ok: true, checked: false });
+
+    return connectDb()
+      .then(function (c) { return c.rpc("check_phone_available", { p_phone: p }); })
+      .then(function (res) {
+        if (res && res.error) throw res.error;
+        var v = res ? res.data : null;
+        if (Array.isArray(v)) v = v.length ? v[0] : null;
+        if (v && typeof v === "object") v = v.check_phone_available;
+        return { ok: v !== false, checked: true };
+      })
+      .catch(function (err) {
+        if (window.console && console.warn) {
+          console.warn("[ALL PO ONE] 휴대폰 중복 확인을 건너뜁니다:", (err && (err.code || err.message)) || err);
+        }
+        return { ok: true, checked: false };
+      });
+  }
+
   function signOutUser() {
     if (mode !== "db") {
       rememberSession(null);
@@ -1500,9 +1524,11 @@
   /* 주문 완료 시 최근 배송지를 계정에 저장 → 다음 주문 때 자동 채움 */
   function saveShipping(form) {
     if (mode !== "db" || !currentUser()) return Promise.resolve(false);
+    /* 가입할 때 등록한 휴대폰 번호는 덮어쓰지 않습니다. */
+    var savedPhone = digits((userMeta() || {}).phone);
     var data = {
       name: String(form.name || "").trim(),
-      phone: digits(form.phone),
+      phone: savedPhone || digits(form.phone),
       shipping: {
         postcode: String(form.postcode || "").trim(),
         address: String(form.address || "").trim(),
@@ -1785,6 +1811,7 @@
     isMemberEmail: isMemberEmail,
     signInUser: signInUser,
     signUpUser: signUpUser,
+    checkPhoneAvailable: checkPhoneAvailable,
     signOutUser: signOutUser,
     saveShipping: saveShipping,
     myOrders: myOrders,
