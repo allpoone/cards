@@ -1358,7 +1358,6 @@ comment on function public.check_phone_available(text) is
 -- 16. 실행 권한
 -- ============================================================
 grant execute on function public.place_order(jsonb, jsonb, integer)      to anon, authenticated;
-grant execute on function public.order_json(uuid)                        to anon, authenticated;
 grant execute on function public.update_order_status(text, text, text)   to anon, authenticated;
 grant execute on function public.auto_confirm_deposit(text, text)        to anon, authenticated;
 grant execute on function public.expire_unpaid_orders()                  to anon, authenticated;

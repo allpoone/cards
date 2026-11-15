@@ -1893,7 +1893,6 @@ $$;
 -- ============================================================
 grant execute on function public.place_order(jsonb, jsonb, integer)  to anon, authenticated;
 grant execute on function public.lookup_orders(text, text, text)    to anon, authenticated;
-grant execute on function public.order_json(uuid)                    to anon, authenticated;
 grant execute on function public.update_order_status(text, text, text) to anon, authenticated;
 grant execute on function public.admin_list_orders(text, text)      to anon, authenticated;
 grant execute on function public.admin_set_stock(text, text, integer) to anon, authenticated;
