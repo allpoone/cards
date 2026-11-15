@@ -227,7 +227,7 @@
       if (typeof row.price === "number") out.price = row.price;
       out.dbStock = row.stock;
       out.dbStatus = row.status;
-      if (row.subtitle) { out.series = row.subtitle; out.subtitle = row.subtitle; }
+      if (row.subtitle) { out.subtitle = row.subtitle; }   /* 한줄 설명은 시리즈와 섞지 않고 그대로 보여줍니다 */
       if (row.image_url) out.image = row.image_url;
       out.imageUrl = row.image_url || "";
       out.description = row.description || "";

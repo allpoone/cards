@@ -501,7 +501,8 @@
 
     rows.push(["종목", p.game === "onepiece" ? "원피스 카드 게임" : "포켓몬 카드"]);
     rows.push(["구분", typeOf(p).label]);
-    rows.push(["시리즈", (p.series || "-") + (p.setCode ? " (" + p.setCode + ")" : "")]);
+    /* 시리즈는 실제 시리즈명이 있을 때만 표시 (한줄 설명을 시리즈에 섞지 않습니다) */
+    if (p.series) rows.push(["시리즈", p.series + (p.setCode ? " (" + p.setCode + ")" : "")]);
     if (editionOf(p)) rows.push(["판본", langOf(p)]);
 
     if (isOripa) {
@@ -550,7 +551,8 @@
       "<dl>" + rows.map(function (r) { return "<dt>" + esc(r[0]) + "</dt><dd>" + r[1] + "</dd>"; }).join("") + "</dl>" +
       descBlocksMarkup(p.description) +
       (isOripa ? seatSectionMarkup(p) : "") +
-      (p.note ? '<p class="detail__note">' + esc(p.note) + "</p>" : "") +
+    /* 한줄 설명(사장님 입력)은 이 자리에 그대로 표시합니다 — 샘플 note 는 더 이상 쓰지 않습니다 */
+    (p.subtitle ? '<p class="detail__note">' + esc(p.subtitle) + "</p>" : "") +
       (p.soldOut
         ? '<p class="detail__sold">품절된 상품입니다. 재입고는 오픈톡으로 문의해 주세요.</p>'
         : buyMarkup(p, isOripa)) +

@@ -1083,18 +1083,26 @@
     setBusy($("npSave"), true, "저장 중…");
     s.saveProduct(data)
       .then(function (p) {
+        /* 오리파: 새 상품 생성 후에도 총 구수(1~N번 번호판)를 반드시 동기화합니다. */
+        if (isOripa && slots > 0 && p && p.id) {
+          return s.syncOripaSeats(p.id, slots).then(function () { return p; });
+        }
+        return p;
+      })
+      .then(function (p) {
         setBusy($("npSave"), false);
         closeNewProduct();
         renderProducts();
         toast(
           (p ? p.name : "상품") + "을(를) 추가했습니다. " +
-            (isOripa ? "번호판 1~" + slots + "번이 준비되었습니다. " : "") +
+            (isOripa && slots > 0 ? "번호판 1~" + slots + "번이 준비되었습니다. " : "") +
             (data.is_hidden ? "숨김 상태라 손님 화면에는 보이지 않습니다." : "손님 사이트에 바로 보입니다."),
           "ok"
         );
       })
       .catch(function (err) {
         setBusy($("npSave"), false);
+        renderProducts();
         toast((err && err.message) || "상품을 추가하지 못했습니다.", "warn");
       });
   }
@@ -1182,18 +1190,28 @@
     var btn = row.querySelector("[data-product-save]");
     setBusy(btn, true, "저장 중…");
 
-    s.saveProduct(payload)
+    /* 오리파: 상품 저장 후 총 구수(1~N번 번호판)까지 반드시 동기화합니다. */
+    var saving = s.saveProduct(payload);
+    if (isOripa && slots > 0 && id) {
+      saving = saving.then(function (p) {
+        return s.syncOripaSeats(id, slots).then(function () { return p; });
+      });
+    }
+
+    saving
       .then(function (p) {
         setBusy(btn, false);
         renderProducts();
         toast(
           (p ? p.name : "상품") + " 저장했습니다. " +
+            (isOripa && slots > 0 ? "총 구수 " + slots + "구(1~" + slots + "번)도 저장했습니다. " : "") +
             (values.is_hidden ? "(숨김 — 손님 화면에는 보이지 않습니다)" : ""),
           "ok"
         );
       })
       .catch(function (err) {
         setBusy(btn, false);
+        renderProducts();
         toast((err && err.message) || "저장하지 못했습니다.", "warn");
       });
   }
