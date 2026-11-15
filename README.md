@@ -177,6 +177,72 @@ DB 로 바꾸면 재고 차감이 **원자적(atomic)** 으로 처리되어, 동
    └─ [미입금 취소]   → 취소됨 (cancelled, 재고 복구)
 ```
 
+## 자동 입금 확인 (은행 알림 → 입금완료)
+
+Supabase 연동 후에는 **안드로이드 MacroDroid** 같은 앱으로 은행 입금 푸시 알림을 받아
+`auto_confirm_deposit` 함수를 호출하면, 1초 만에 주문이 **[입금완료]** 로 바뀝니다.
+(테스트 모드에서는 동작하지 않습니다.)
+
+### 1) 시크릿 확인
+
+Supabase **SQL Editor** 에서 실행하면 자동 입금 확인용 시크릿이 나옵니다. (설치할 때 무작위 생성)
+
+```sql
+select deposit_secret from private.shop_settings;
+```
+
+바꾸고 싶으면:
+
+```sql
+update private.shop_settings set deposit_secret = '길고-복잡한-임의의-문자열' where id = 1;
+```
+
+### 2) 호출 주소
+
+```
+POST https://<프로젝트>.supabase.co/rest/v1/rpc/auto_confirm_deposit
+headers:
+  apikey: <anon public key>
+  Authorization: Bearer <anon public key>
+  Content-Type: application/json
+body:
+  {"p_notification_text": "홍길동 50,000원 입금", "p_secret": "<deposit_secret>"}
+```
+
+터미널에서 먼저 확인:
+
+```bash
+curl -s -X POST 'https://<프로젝트>.supabase.co/rest/v1/rpc/auto_confirm_deposit' \
+  -H 'apikey: <anon key>' \
+  -H 'Authorization: Bearer <anon key>' \
+  -H 'Content-Type: application/json' \
+  -d '{"p_notification_text":"홍길동 50,000원 입금","p_secret":"<deposit_secret>"}'
+```
+
+### 3) MacroDroid 설정
+
+1. **트리거**: `알림(Notification) 수신` → 은행 앱 선택 → (선택) 알림 내용에 `입금` 포함
+2. **동작**: `HTTP 요청(HTTP Request)`
+   - Method: `POST`
+   - URL: 위 주소
+   - Content-Type: `application/json`
+   - Body: `{"p_notification_text":"[알림 텍스트 변수]","p_secret":"<deposit_secret>"}`
+   - 헤더: `apikey`, `Authorization: Bearer <anon key>`
+3. 알림 텍스트 변수는 MacroDroid 의 `알림 제목/내용` 매직 텍스트를 그대로 넣으면 됩니다.
+
+### 4) 응답과 안전장치
+
+| 응답 `status` | 의미 | 처리 |
+| --- | --- | --- |
+| `matched` | 주문 1건을 찾아 `입금완료` 처리 | 그대로 발송 준비 |
+| `ambiguous` | 같은 금액·입금자명의 입금대기 주문이 2건 이상 | **자동 확정하지 않음** → 관리자 페이지에서 직접 확인 |
+| `unmatched` | 금액·입금자명이 맞는 주문이 없음 (`no_candidate`), 이미 처리된 주문, 알림에 금액 없음 | 관리자 페이지에서 확인 |
+
+- 금액은 알림에서 **첫 번째 `숫자 + 원`** 을 사용합니다. (잔액이 함께 오는 알림은 입금 금액이 먼저 오는 경우가 대부분입니다.)
+- 입금자명은 주문의 `입금자명`(없으면 주문자명)이 알림 텍스트에 **그대로 포함**되어야 매칭됩니다.
+- 모든 시도는 `deposit_events` 에 남고, 사장님 페이지의 **자동 입금 확인 로그** 에서 확인할 수 있습니다.
+- 시크릿은 anon 키와 별개입니다. 시크릿을 모르면 다른 사람이 주문 상태를 바꿀 수 없습니다.
+
 ## 로고 교체
 
 새 로고 이미지를 `logo.png` 에 덮어쓰고, 같은 이미지를 160×160으로 줄여 `logo-160.png` 에 저장한 뒤 `./deploy.sh "로고 교체"` 를 실행하면 됩니다.

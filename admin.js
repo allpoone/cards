@@ -325,6 +325,81 @@
     });
   }
 
+  /* ── 자동 입금 확인 로그 ──────────────────────────────── */
+  var EVENT = {
+    matched: { label: "자동 입금확인", cls: "matched" },
+    ambiguous: { label: "확인 필요", cls: "ambiguous" },
+    unmatched: { label: "매칭 없음", cls: "unmatched" },
+    error: { label: "오류", cls: "unmatched" },
+  };
+
+  var REASON = {
+    no_candidate: "입금액·입금자명이 맞는 입금대기 주문 없음",
+    multiple_candidates: "같은 금액·입금자명 주문이 2건 이상",
+    already_processed: "이미 처리된 주문",
+    no_amount: "알림에서 금액을 찾지 못함",
+    empty_text: "알림 내용 없음",
+    auto: "자동 매칭",
+  };
+
+  function renderEvents(list) {
+    var host = $("eventList");
+    var hint = $("eventHint");
+    var s = window.APOStore;
+    if (!host || !hint) return;
+
+    if (s && s.isDemo()) {
+      host.innerHTML = "";
+      hint.textContent = "DB 연동 전 테스트 모드에서는 자동 입금 확인 로그가 없습니다. Supabase 연동 후 은행 알림과 함께 사용할 수 있습니다.";
+      hint.hidden = false;
+      return;
+    }
+
+    if (!list || !list.length) {
+      host.innerHTML = "";
+      hint.textContent = "아직 자동 입금 확인 기록이 없습니다.";
+      hint.hidden = false;
+      return;
+    }
+
+    hint.hidden = true;
+    host.innerHTML = list.map(function (e) {
+      var meta = EVENT[e.status] || EVENT.unmatched;
+      var candidates = Array.isArray(e.candidates) ? e.candidates : [];
+      return (
+        '<div class="event-row" data-status="' + esc(meta.cls) + '">' +
+        '<div class="event-row__head">' +
+        '<span class="event-pill" data-status="' + esc(meta.cls) + '">' + esc(meta.label) + "</span>" +
+        (e.amount ? '<strong class="event-row__amount">' + won(e.amount) + "</strong>" : "") +
+        '<span class="event-row__time">' + esc(stamp(e.created_at)) + "</span>" +
+        "</div>" +
+        '<p class="event-row__text">' + esc(e.raw_text) + "</p>" +
+        '<p class="event-row__meta">' +
+        (e.order_no
+          ? "주문 " + esc(e.order_no) + " · "
+          : "") +
+        esc(REASON[e.reason] || e.reason || "") +
+        (candidates.length ? " · 후보 " + esc(candidates.join(", ")) : "") +
+        "</p>" +
+        "</div>"
+      );
+    }).join("");
+  }
+
+  function loadEvents() {
+    var s = window.APOStore;
+    if (!s) return Promise.resolve([]);
+    return s.listDepositEvents(pin(), 30)
+      .then(function (list) {
+        renderEvents(list);
+        return list;
+      })
+      .catch(function () {
+        renderEvents([]);
+        return [];
+      });
+  }
+
   /* ── 이벤트 ───────────────────────────────────────────── */
   function wire() {
     $("lockForm").addEventListener("submit", function (e) {
@@ -356,7 +431,13 @@
     $("refreshBtn").addEventListener("click", function () {
       loadOrders();
       renderStock();
+      loadEvents();
       toast("새로고침했습니다.", "ok");
+    });
+
+    $("eventReloadBtn").addEventListener("click", function () {
+      loadEvents();
+      toast("자동 입금 로그를 다시 불러왔습니다.", "ok");
     });
 
     $("stockReloadBtn").addEventListener("click", function () {
@@ -405,6 +486,7 @@
       if (!e.key || e.key.indexOf("apo.") !== 0) return;
       if (!pin()) return;
       loadOrders();
+      loadEvents();
     });
   }
 
@@ -412,6 +494,7 @@
   function loadAll() {
     loadOrders();
     renderStock();
+    loadEvents();
   }
 
   function boot() {

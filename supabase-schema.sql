@@ -8,17 +8,20 @@
 --   2) Dashboard → SQL Editor 에 이 파일 전체를 붙여넣고 [Run].
 --   3) 아래 '관리자 PIN' 값을 기본 0000 에서 원하는 숫자로 바꿔 한 번 더 실행합니다.
 --        update private.shop_settings set admin_pin = '1234' where id = 1;
+--      자동 입금확인 시크릿도 확인해 둡니다. (MacroDroid 연동에 사용)
+--        select deposit_secret from private.shop_settings;
 --   4) Dashboard → Project Settings → API 에서
 --        Project URL  → cards.js 의 SITE_CONFIG.supabaseUrl
 --        anon public  → cards.js 의 SITE_CONFIG.supabaseAnonKey
 --      에 넣고 배포하면 사이트가 자동으로 DB 모드로 바뀝니다.
 --
 -- ▶ 구조
---   products      상품 재고·상태 (사이트의 카드 디자인은 cards.js 가 담당)
---   orders        주문 (상태: pending_payment 입금대기 / paid 입금완료 /
---                        shipped 발송완료 / cancelled 취소)
---   order_items   주문 상품 줄
---   private.shop_settings  관리자 PIN (RLS 로 anon 접근 차단)
+--   products        상품 재고·상태 (사이트의 카드 디자인은 cards.js 가 담당)
+--   orders          주문 (상태: pending_payment 입금대기 / paid 입금완료 /
+--                          shipped 발송완료 / cancelled 취소)
+--   order_items     주문 상품 줄
+--   deposit_events  은행 알림 자동 입금확인 처리 로그 (관리자만 조회)
+--   private.shop_settings  관리자 PIN · 자동 입금확인 시크릿 (anon 접근 차단)
 --
 -- ▶ 보안 요약
 --   · 상품은 누구나 읽기만 가능하고, 재고 수정은 서버 함수(RPC)로만 됩니다.
@@ -47,6 +50,12 @@ create table if not exists private.shop_settings (
 insert into private.shop_settings (id, admin_pin)
 values (1, '0000')
 on conflict (id) do nothing;
+
+-- 은행 입금 알림(MacroDroid 등) 자동 확인용 시크릿
+-- 설치할 때 무작위로 만들어집니다. 확인/변경 방법은 README 의 '자동 입금 확인' 참고.
+alter table private.shop_settings
+  add column if not exists deposit_secret text not null
+  default encode(gen_random_bytes(16), 'hex');
 
 revoke all on private.shop_settings from public;
 
@@ -142,6 +151,20 @@ create table if not exists public.order_items (
 create index if not exists order_items_order_idx on public.order_items (order_id);
 create index if not exists order_items_product_idx on public.order_items (product_id);
 
+-- 자동 입금 확인(은행 알림) 처리 기록 — 관리자만 볼 수 있음
+create table if not exists public.deposit_events (
+  id          bigserial primary key,
+  raw_text    text not null,
+  amount      integer,
+  status      text not null check (status in ('matched', 'unmatched', 'ambiguous', 'error')),
+  reason      text,
+  order_no    text,
+  candidates  jsonb not null default '[]'::jsonb,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists deposit_events_created_idx on public.deposit_events (created_at desc);
+
 -- ============================================================
 -- 3. 행 수준 보안 (RLS)
 -- ============================================================
@@ -171,6 +194,14 @@ create policy orders_admin on public.orders
 
 drop policy if exists order_items_admin on public.order_items;
 create policy order_items_admin on public.order_items
+  for all to authenticated
+  using (private.is_admin())
+  with check (private.is_admin());
+
+alter table public.deposit_events enable row level security;
+
+drop policy if exists deposit_events_admin on public.deposit_events;
+create policy deposit_events_admin on public.deposit_events
   for all to authenticated
   using (private.is_admin())
   with check (private.is_admin());
@@ -569,16 +600,210 @@ end;
 $$;
 
 -- ============================================================
--- 9. 실행 권한
+-- 9. 자동 입금 확인 (은행 알림 → 입금완료)
+-- ------------------------------------------------------------
+-- 안드로이드 MacroDroid 등에서 은행 입금 푸시 알림을 받으면
+-- 아래 HTTP 요청 한 번을 보내면 1초 만에 [입금완료]로 바뀝니다.
+--
+--   POST https://<project>.supabase.co/rest/v1/rpc/auto_confirm_deposit
+--   headers: apikey: <anon key>, Authorization: Bearer <anon key>,
+--            Content-Type: application/json
+--   body:    {"p_notification_text": "{{notification_text}}", "p_secret": "<deposit_secret>"}
+--
+-- 동작
+--   1) p_secret 이 private.shop_settings.deposit_secret 과 같은지 확인
+--   2) 알림 텍스트에서 첫 번째 '금액 + 원' 을 꺼냄 (예: "홍길동 50,000원 입금" → 50000)
+--   3) 입금대기 주문 중 (총 입금액 = 그 금액) + (입금자명이 알림에 포함) 인 주문을 찾음
+--   4) 후보가 정확히 1건일 때만 [입금완료]로 바꿈
+--      · 0건 → {"status":"unmatched"}
+--      · 2건 이상(동명이인·같은 금액) → {"status":"ambiguous"} + 후보 주문번호
+--      두 경우 모두 확정하지 않고 public.deposit_events 에 남겨 관리자 페이지에서 확인
+--
+-- 시크릿 확인/변경 (SQL Editor)
+--   select deposit_secret from private.shop_settings;
+--   update private.shop_settings set deposit_secret = '원하는-길고-복잡한-값' where id = 1;
+-- ============================================================
+create or replace function public.auto_confirm_deposit(
+  p_notification_text text,
+  p_secret            text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_secret     text;
+  v_text       text := btrim(coalesce(p_notification_text, ''));
+  v_amount     int;
+  v_ids        uuid[];
+  v_count      int;
+  v_candidates jsonb;
+  v_order      public.orders;
+begin
+  /* --- 1) 시크릿 검증 ------------------------------------- */
+  select deposit_secret into v_secret from private.shop_settings where id = 1;
+
+  if v_secret is null
+     or p_secret is null
+     or btrim(p_secret) = ''
+     or btrim(p_secret) <> v_secret then
+    raise exception '자동 입금 확인 시크릿이 올바르지 않습니다.'
+      using errcode = '28000';
+  end if;
+
+  /* --- 2) 금액 추출 -------------------------------------- */
+  if v_text = '' then
+    insert into public.deposit_events (raw_text, status, reason)
+    values (v_text, 'unmatched', 'empty_text');
+    return jsonb_build_object('status', 'unmatched', 'reason', 'empty_text',
+                              'message', '알림 내용이 비어 있습니다.');
+  end if;
+
+  select replace(m[1], ',', '')::int
+    into v_amount
+    from regexp_matches(v_text, '([0-9][0-9,]{0,12})\s*원', 'g') as m
+   limit 1;
+
+  if v_amount is null or v_amount <= 0 then
+    insert into public.deposit_events (raw_text, status, reason)
+    values (v_text, 'unmatched', 'no_amount');
+    return jsonb_build_object('status', 'unmatched', 'reason', 'no_amount',
+                              'message', '알림에서 입금 금액을 찾지 못했습니다.');
+  end if;
+
+  /* --- 3) 후보 주문 찾기 (입금액 일치 + 입금자명 포함) ----- */
+  select array_agg(o.id order by o.created_at)
+    into v_ids
+    from public.orders o
+   where o.status = 'pending_payment'
+     and o.total_amount = v_amount
+     and length(btrim(coalesce(o.depositor_name, o.customer_name, ''))) >= 1
+     and v_text ilike '%' || btrim(coalesce(o.depositor_name, o.customer_name)) || '%';
+
+  v_count := coalesce(array_length(v_ids, 1), 0);
+
+  if v_count = 0 then
+    insert into public.deposit_events (raw_text, amount, status, reason)
+    values (v_text, v_amount, 'unmatched', 'no_candidate');
+    return jsonb_build_object(
+      'status', 'unmatched',
+      'reason', 'no_candidate',
+      'amount', v_amount,
+      'message', '입금액과 입금자명이 맞는 입금대기 주문이 없습니다.'
+    );
+  end if;
+
+  if v_count > 1 then
+    select jsonb_agg(o.order_no order by o.created_at)
+      into v_candidates
+      from public.orders o
+     where o.id = any(v_ids);
+
+    insert into public.deposit_events (raw_text, amount, status, reason, candidates)
+    values (v_text, v_amount, 'ambiguous', 'multiple_candidates', coalesce(v_candidates, '[]'::jsonb));
+
+    return jsonb_build_object(
+      'status', 'ambiguous',
+      'reason', 'multiple_candidates',
+      'amount', v_amount,
+      'candidates', coalesce(v_candidates, '[]'::jsonb),
+      'message', '같은 금액·입금자명의 입금대기 주문이 2건 이상이라 자동 확정하지 않았습니다. 관리자 페이지에서 확인해 주세요.'
+    );
+  end if;
+
+  /* --- 4) 단일 후보 → 잠그고 상태 재확인 후 입금완료 ------ */
+  select * into v_order
+    from public.orders
+   where id = v_ids[1]
+     for update;
+
+  if v_order.status <> 'pending_payment' then
+    insert into public.deposit_events (raw_text, amount, status, reason, order_no)
+    values (v_text, v_amount, 'unmatched', 'already_processed', v_order.order_no);
+    return jsonb_build_object(
+      'status', 'unmatched',
+      'reason', 'already_processed',
+      'amount', v_amount,
+      'order_no', v_order.order_no,
+      'message', '이미 처리된 주문입니다. (' || v_order.status || ')'
+    );
+  end if;
+
+  update public.orders
+     set status = 'paid',
+         paid_at = coalesce(paid_at, now()),
+         updated_at = now()
+   where id = v_order.id;
+
+  insert into public.deposit_events (raw_text, amount, status, reason, order_no)
+  values (v_text, v_amount, 'matched', 'auto', v_order.order_no);
+
+  return jsonb_build_object(
+    'status', 'matched',
+    'amount', v_amount,
+    'order_no', v_order.order_no,
+    'total_amount', v_order.total_amount,
+    'customer_name', v_order.customer_name,
+    'depositor_name', v_order.depositor_name,
+    'paid_at', now()
+  );
+end;
+$$;
+
+comment on function public.auto_confirm_deposit(text, text) is
+  '은행 입금 알림 텍스트로 입금대기 주문을 자동 [입금완료] 처리. 애매하면 ambiguous 로 남기고 확정하지 않음.';
+
+-- 자동 입금 확인 로그 (관리자 페이지용)
+create or replace function public.admin_deposit_events(
+  p_pin   text default null,
+  p_limit integer default 30
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_result jsonb;
+begin
+  perform private.assert_admin(p_pin);
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', e.id,
+           'raw_text', e.raw_text,
+           'amount', e.amount,
+           'status', e.status,
+           'reason', e.reason,
+           'order_no', e.order_no,
+           'candidates', e.candidates,
+           'created_at', e.created_at
+         ) order by e.created_at desc), '[]'::jsonb)
+    into v_result
+    from (
+      select *
+        from public.deposit_events
+       order by created_at desc
+       limit greatest(1, least(coalesce(p_limit, 30), 200))
+    ) e;
+
+  return coalesce(v_result, '[]'::jsonb);
+end;
+$$;
+
+-- ============================================================
+-- 10. 실행 권한
 -- ============================================================
 grant execute on function public.place_order(jsonb, jsonb)          to anon, authenticated;
 grant execute on function public.lookup_orders(text, text, text)    to anon, authenticated;
 grant execute on function public.update_order_status(text, text, text) to anon, authenticated;
 grant execute on function public.admin_list_orders(text, text)      to anon, authenticated;
 grant execute on function public.admin_set_stock(text, text, integer) to anon, authenticated;
+grant execute on function public.auto_confirm_deposit(text, text)    to anon, authenticated;
+grant execute on function public.admin_deposit_events(text, integer) to anon, authenticated;
 
 -- ============================================================
--- 10. 상품 재고 초기값 (cards.js 와 같은 id)
+-- 11. 상품 재고 초기값 (cards.js 와 같은 id)
 --     이미 있는 상품은 건드리지 않습니다. (재고 보존)
 -- ============================================================
 insert into public.products (id, name, type, game, price, stock, status, sort_order)
@@ -599,4 +824,5 @@ on conflict (id) do nothing;
 -- select id, name, stock, status from public.products order by sort_order;
 -- select order_no, status, total_amount, customer_name, created_at from public.orders order by created_at desc limit 20;
 -- select * from private.shop_settings;
+-- select status, amount, order_no, raw_text, created_at from public.deposit_events order by created_at desc limit 20;
 -- ============================================================

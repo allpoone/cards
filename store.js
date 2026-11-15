@@ -674,6 +674,20 @@
     });
   }
 
+  /* ── 관리자: 자동 입금 확인 로그 ─────────────────────── */
+  function listDepositEvents(pin, limit) {
+    if (mode !== "db") {
+      if (!checkPin(pin)) return Promise.reject(new Error("관리자 PIN이 올바르지 않습니다."));
+      return Promise.resolve([]);
+    }
+    return rpc("admin_deposit_events", {
+      p_pin: String(pin || ""),
+      p_limit: clampInt(limit || 30, 1, 100),
+    }).then(function (data) {
+      return Array.isArray(data) ? data : (data ? [data] : []);
+    });
+  }
+
   /* ── 관리자: 재고 수정 ────────────────────────────────── */
   function localSetStock(id, stock, pin) {
     if (!checkPin(pin)) {
@@ -814,6 +828,7 @@
     listOrders: listOrders,
     setOrderStatus: setOrderStatus,
     setStock: setStock,
+    listDepositEvents: listDepositEvents,
 
     adminPin: adminPin,
     checkPin: checkPin,

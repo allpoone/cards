@@ -227,3 +227,29 @@
 .admin-empty__desc { font-weight: 400 !important; font-size: 0.74rem !important; color: var(--text-faint); }
 .admin-foot { margin: 0; font-size: 0.72rem; color: var(--text-faint); text-align: center; line-height: 1.7; }
 .admin-foot b { color: var(--text-dim); }
+
+/* ── 자동 입금 확인 로그 ───────────────────────────────── */
+.event-list { display: grid; gap: 8px; }
+.event-row {
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+}
+.event-row[data-status="matched"] { border-color: rgba(61, 220, 151, 0.3); }
+.event-row[data-status="ambiguous"] { border-color: rgba(255, 176, 32, 0.45); }
+.event-row__head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
+.event-pill {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  border: 1px solid var(--line-strong);
+  color: var(--text-dim);
+}
+.event-pill[data-status="matched"] { color: #6ff0bb; border-color: rgba(61, 220, 151, 0.4); background: rgba(61, 220, 151, 0.1); }
+.event-pill[data-status="ambiguous"] { color: #ffc76b; border-color: rgba(255, 176, 32, 0.45); background: rgba(255, 176, 32, 0.1); }
+.event-row__amount { font-size: 0.9rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.event-row__time { margin-left: auto; font-size: 0.68rem; color: var(--text-faint); }
+.event-row__text { margin: 0 0 3px; font-size: 0.78rem; color: var(--text-dim); word-break: break-all; line-height: 1.5; }
+.event-row__meta { margin: 0; font-size: 0.68rem; color: var(--text-faint); line-height: 1.5; }

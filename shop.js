@@ -390,6 +390,7 @@
       "</div>";
 
     $("checkoutForm").addEventListener("submit", submitOrder);
+    closeEl($("cartDrawer"));
     openEl($("checkoutModal"));
     var first = $("coName");
     if (first) setTimeout(function () { first.focus(); }, 60);
@@ -792,7 +793,11 @@
     });
 
     $("checkoutModal").addEventListener("click", function (e) {
-      if (e.target.closest("[data-close-checkout]")) closeEl($("checkoutModal"));
+      if (!e.target.closest("[data-close-checkout]")) return;
+      closeEl($("checkoutModal"));
+      /* 주문서를 닫으면 장바구니로 돌아가기 */
+      var s2 = store();
+      if (s2 && s2.cart().length) openCart();
     });
     $("doneModal").addEventListener("click", function (e) {
       if (e.target.closest("[data-close-done]")) closeEl($("doneModal"));
@@ -815,7 +820,12 @@
 
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
-      if (!$("checkoutModal").hidden) { closeEl($("checkoutModal")); return; }
+      if (!$("checkoutModal").hidden) {
+        closeEl($("checkoutModal"));
+        var s3 = store();
+        if (s3 && s3.cart().length) openCart();
+        return;
+      }
       if (!$("doneModal").hidden) { closeEl($("doneModal")); return; }
       if (!$("lookupModal").hidden) { closeEl($("lookupModal")); return; }
       if (!$("cartDrawer").hidden) { closeEl($("cartDrawer")); return; }
