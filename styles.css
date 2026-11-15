@@ -1733,9 +1733,13 @@ body.modal-open { overflow: hidden; }
 .timeline__item.is-done .timeline__dot { border-color: var(--ok); background: var(--ok); }
 
 /* ── 푸터 링크 ─────────────────────────────────────────── */
-.site-footer__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.footer-admin { font-size: 0.7rem; color: var(--text-faint); text-decoration: none; border-bottom: 1px dashed var(--line-strong); padding-bottom: 1px; }
+.site-footer__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.footer-admin { margin-left: auto; font-size: 0.7rem; color: var(--text-faint); text-decoration: none; border-bottom: 1px dashed var(--line-strong); padding-bottom: 1px; }
 .footer-admin:hover { color: var(--text-dim); }
+/* 푸터가 세로로 쌓이는 좁은 화면에서는 [사장님 페이지]가 푸터 맨 오른쪽 끝에 붙습니다. */
+@media (max-width: 640px) {
+  .site-footer__actions { width: 100%; margin-left: 0; }
+}
 
 /* ── 토스트 ─────────────────────────────────────────────── */
 .toast-stack {
