@@ -110,11 +110,11 @@
     if (host && host.classList) host.classList.toggle("is-off", !on);
   }
 
-  /* 적립률 입력값 검사 (0 ~ 50%) — 문제가 있으면 문자열, 정상이면 숫자 */
+  /* 적립률 입력값 검사 (0 ~ 50%) — 문제가 있으면 문자열, 비었으면 상점 기본, 정상이면 숫자 */
   function readRate(input) {
     if (!input) return null;
     var raw = String(input.value == null ? "" : input.value).trim();
-    if (!raw) return null;
+    if (!raw) return Number(shopRateText());
     var n = Number(raw);
     if (!isFinite(n) || n < 0 || n > 50) return "상품 적립률은 0 ~ 50 사이 숫자로 입력해 주세요.";
     return Math.round(n * 100) / 100;

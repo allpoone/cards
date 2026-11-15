@@ -1096,7 +1096,7 @@ begin
            subtitle  = nullif(btrim(coalesce(p_subtitle, '')), ''),
            image_url = nullif(btrim(coalesce(p_image_url, '')), ''),
            earn_points = v_earn,
-           point_rate  = v_rate,
+           point_rate  = coalesce(v_rate, point_rate),
            updated_at = now()
      where id = v_id
     returning * into v_row;
