@@ -1403,7 +1403,6 @@
     toast((userLabel(user) || "회원") + "님 " + (isSignup ? "환영합니다!" : "로그인했습니다."), "ok");
 
     if (authNext === "checkout") openCheckout();
-    else if (authNext === "mypage") openMypage("info");
     authNext = "";
   }
 
@@ -1537,15 +1536,19 @@
 
   function mypageInfoMarkup(user) {
     var meta = (user && user.user_metadata) || {};
-    var id = memberId(user);
+    var loginId = memberId(user);
+    /* 이메일 계정은 아이디가 없으므로 가입한 이메일을 보여 줍니다. */
+    var id = loginId || String((user && user.email) || "");
     var name = String(meta.name || "");
     var phone = digits(meta.phone);
     return (
       '<form id="mypageForm" class="mypage__form" novalidate>' +
       '<div class="field">' +
-      '<label for="mpId">아이디</label>' +
+      '<label for="mpId">' + (loginId ? "아이디" : "이메일") + '</label>' +
       '<input id="mpId" type="text" value="' + esc(id) + '" readonly aria-readonly="true" class="is-locked" />' +
-      '<p class="field__hint">아이디는 바꿀 수 없습니다.</p>' +
+      '<p class="field__hint">' +
+      (loginId ? "아이디는 바꿀 수 없습니다." : "가입한 이메일이 표시됩니다. 바꿀 수 없습니다.") +
+      "</p>" +
       "</div>" +
       '<div class="field">' +
       '<label for="mpName">이름 <span class="req">*</span></label>' +
@@ -1601,7 +1604,7 @@
       '<p class="mypage__eyebrow">MY PAGE</p>' +
       '<h2 class="mypage__title" id="mypageTitle">마이페이지</h2>' +
       '<p class="mypage__lede">로그인하시면 내 정보 수정 · 주문 내역 · 적립금을 한곳에서 관리할 수 있어요.</p>' +
-      '<button class="btn btn--gold btn--block mypage__login" type="button" data-auth-open="login" data-auth-next="mypage">로그인 / 회원가입</button>' +
+      '<button class="btn btn--gold btn--block mypage__login" type="button" data-auth-open="login">로그인 / 회원가입</button>' +
       '<div class="mypage__sep"><span>비회원 주문 조회</span></div>' +
       '<p class="mypage__note">주문번호 또는 주문자명 + 연락처로 주문 상태를 확인할 수 있어요.</p>' +
       '<div class="lookup__tabs" role="group" aria-label="조회 방법">' +
@@ -2062,6 +2065,7 @@
       if (t.closest("[data-auth-guest]")) {
         e.preventDefault();
         var wasNext = authNext;
+        authNext = "";
         closeEl($("authModal"));
         if (wasNext === "checkout") openCheckout();
         return;
@@ -2152,7 +2156,10 @@
       if (e.target.closest("[data-close-lookup]")) closeEl($("lookupModal"));
     });
     $("authModal").addEventListener("click", function (e) {
-      if (e.target.closest("[data-close-auth]")) closeEl($("authModal"));
+      if (e.target.closest("[data-close-auth]")) {
+        authNext = "";
+        closeEl($("authModal"));
+      }
     });
     $("authModal").addEventListener("submit", submitAuth);
 
@@ -2185,7 +2192,7 @@
 
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
-      if (!$("authModal").hidden) { closeEl($("authModal")); return; }
+      if (!$("authModal").hidden) { authNext = ""; closeEl($("authModal")); return; }
       if (!$("mypageModal").hidden) { closeEl($("mypageModal")); return; }
       if (!$("checkoutModal").hidden) {
         closeEl($("checkoutModal"));
