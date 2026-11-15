@@ -265,9 +265,9 @@
       "</div>" +
       '<div class="card__actions">' +
       '<button class="btn btn--ghost" type="button" data-action="detail">상세</button>' +
-      '<button class="btn btn--kakao" type="button" data-action="inquire"' +
-      (sold ? ' aria-disabled="true"' : "") +
-      ">오픈톡 문의</button>" +
+      (sold
+        ? '<button class="btn btn--kakao" type="button" disabled>판매완료</button>'
+        : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 문의</button>') +
       "</div>" +
       "</div>" +
       "</article>"
@@ -518,6 +518,16 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeModal();
     });
+
+    /* 스티키 툴바 경계선 */
+    var controls = document.querySelector(".controls");
+    if (controls) {
+      var onScroll = function () {
+        controls.classList.toggle("is-stuck", window.scrollY > 80);
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+    }
   }
 
   /* ── 초기 렌더 ────────────────────────────────────────── */
