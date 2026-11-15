@@ -31,6 +31,137 @@
   var filter = "all";
   var busy = false;
 
+  /* ── 사장님 페이지 탭 ─────────────────────────────────── */
+  var adminTab = "orders";
+  var TAB_KEYS = ["orders", "products", "members", "events"];
+
+  function renderTabs() {
+    var tabs = document.querySelectorAll("[data-admin-tab]");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].setAttribute("aria-selected", tabs[i].getAttribute("data-admin-tab") === adminTab ? "true" : "false");
+    }
+    var panes = document.querySelectorAll("[data-admin-pane]");
+    for (var j = 0; j < panes.length; j++) {
+      panes[j].hidden = panes[j].getAttribute("data-admin-pane") !== adminTab;
+    }
+  }
+
+  function setAdminTab(key) {
+    adminTab = TAB_KEYS.indexOf(key) >= 0 ? key : "orders";
+    renderTabs();
+    if (adminTab === "orders") loadOrders();
+    else if (adminTab === "products") renderProducts();
+    else if (adminTab === "members") loadMembers();
+    else if (adminTab === "events") loadEvents();
+  }
+
+  /* ── 당첨 라인업 5등급 ───────────────────────────────── */
+  var TIERS = [
+    { key: "dia", label: "다이아" },
+    { key: "gold", label: "골드" },
+    { key: "silver", label: "실버" },
+    { key: "bronze", label: "브론즈" },
+    { key: "last", label: "라스트원상" }
+  ];
+
+  function lineupEditMarkup(rows) {
+    var byTier = {};
+    (rows || []).forEach(function (r) {
+      if (r && r.tier) byTier[r.tier] = r;
+    });
+    return (
+      '<div class="lineup-edit" data-lineup>' +
+      TIERS.map(function (t) {
+        var r = byTier[t.key] || {};
+        return '<div class="lineup-edit__row" data-tier="' + t.key + '">' +
+          '<span class="lineup-edit__rank">' + t.label + "</span>" +
+          '<input type="text" maxlength="60" data-tl-name placeholder="' + t.label +
+          ' 내용 (예: 리자몽 SAR PSA 10)" value="' + esc(r.name || "") + '" />' +
+          '<input type="number" min="0" max="999" inputmode="numeric" data-tl-qty placeholder="0" value="' +
+          (r.qty == null ? "" : Number(r.qty)) + '" aria-label="' + t.label + ' 개수" />' +
+          "</div>";
+      }).join("") +
+      "</div>"
+    );
+  }
+
+  function readLineup(scope) {
+    var out = [];
+    var box = scope ? scope.querySelector("[data-lineup]") : null;
+    if (!box) return out;
+    var rows = box.querySelectorAll("[data-tier]");
+    for (var i = 0; i < rows.length; i++) {
+      var nameEl = rows[i].querySelector("[data-tl-name]");
+      var qtyEl = rows[i].querySelector("[data-tl-qty]");
+      var name = (nameEl ? nameEl.value : "").trim();
+      if (!name) continue;
+      out.push({
+        tier: rows[i].getAttribute("data-tier"),
+        name: name,
+        qty: Math.max(0, Math.floor(Number(qtyEl ? qtyEl.value : 0) || 0))
+      });
+    }
+    return out;
+  }
+
+  /* 오리파 총 구수 · 번호판 현황 · 라인업 편집 */
+  function oripaBoxMarkup(p) {
+    var total = Number(p.totalSlots) || 0;
+    var show = p.type === "oripa";
+    return (
+      '<div class="pf pf--wide oripa-box" data-oripa-box' + (show ? "" : " hidden") + '>' +
+      '<p class="oripa-box__title">오리파 번호판 · 당첨 라인업</p>' +
+      '<div class="oripa-box__row">' +
+      '<label class="pf"><span>총 구수 (1~N번)</span>' +
+      '<input type="number" inputmode="numeric" min="1" max="500" data-field="total_slots" value="' +
+      (total > 0 ? total : "") + '" placeholder="예: 100" /></label>' +
+      '<p class="oripa-box__status" data-seat-status>총 구수를 입력하고 [저장]하면 1~N번 번호판이 만들어집니다. (이미 팔린·입금대기 번호는 유지)</p>' +
+      "</div>" +
+      '<div class="oripa-seats" data-seat-map hidden></div>' +
+      lineupEditMarkup((p.lineup && p.lineup.length) ? p.lineup : (p.prizes || [])) +
+      "</div>"
+    );
+  }
+
+  /* 번호판 현황(읽기 전용 그리드) */
+  function loadSeatMap(scope, id) {
+    var s = window.APOStore;
+    if (!s || !s.getOripaBoard || !scope || !id) return;
+    var statusEl = scope.querySelector("[data-seat-status]");
+    var mapEl = scope.querySelector("[data-seat-map]");
+    s.getOripaBoard(id).then(function (b) {
+      if (!mapEl) return;
+      if (!b || !b.ready) {
+        mapEl.hidden = true;
+        if (statusEl) statusEl.textContent = "아직 번호판이 없습니다. 총 구수를 입력하고 [저장]하면 1~N번이 만들어집니다.";
+        return;
+      }
+      var pick = {};
+      var c = { available: 0, held: 0, sold: 0 };
+      (b.seats || []).forEach(function (x) {
+        pick[x.n] = x.s || "available";
+        if (c[x.s] == null) c[x.s] = 0;
+        c[x.s]++;
+      });
+      var html = "";
+      var total = Number(b.total_slots) || 0;
+      for (var n = 1; n <= total; n++) {
+        html += '<span data-s="' + (pick[n] || "available") + '">' + n + "</span>";
+      }
+      mapEl.innerHTML = html || '<span class="oripa-seats__empty">번호판이 비어 있습니다.</span>';
+      mapEl.hidden = false;
+      if (statusEl) {
+        statusEl.textContent = "총 " + total + "구 · 판매가능 " + (c.available || 0) +
+          " · 입금대기 " + (c.held || 0) + " · 팔린 번호 " + (c.sold || 0);
+      }
+    });
+  }
+
+  function toggleOripaBox(scope, isOripa) {
+    var box = scope ? scope.querySelector("[data-oripa-box]") : null;
+    if (box) box.hidden = !isOripa;
+  }
+
   /* ── 유틸 ─────────────────────────────────────────────── */
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -391,6 +522,12 @@
     );
   }
 
+  function seatTagOf(it) {
+    var v = it && (it.seat_numbers || it.seats);
+    if (!Array.isArray(v) || !v.length) return "";
+    return "(" + v.map(function (n) { return "#" + Number(n); }).join(", ") + ")";
+  }
+
   function orderCard(o) {
     var st = STATUS[o.status] || STATUS.pending_payment;
     var addr = [o.postcode ? "(" + o.postcode + ")" : "", o.address, o.address_detail].filter(Boolean).join(" ");
@@ -410,7 +547,10 @@
 
       '<ul class="aorder__items">' +
       (o.items || []).map(function (it) {
-        return "<li><span>" + esc(it.product_name) + ' <em>×' + it.qty + "</em></span><b>" + won(it.line_total) + "</b></li>";
+        var tag = seatTagOf(it);
+        return "<li><span>" + esc(it.product_name) +
+          (tag ? ' <em class="seat-nums">' + esc(tag) + "</em>" : "") +
+          ' <em>×' + it.qty + "</em></span><b>" + won(it.line_total) + "</b></li>";
       }).join("") +
       "</ul>" +
 
@@ -439,10 +579,14 @@
 
   function renderOrders() {
     var counts = { pending_payment: 0, paid: 0, shipped: 0, cancelled: 0 };
+    var sums = { pending_payment: 0, paid: 0, shipped: 0, cancelled: 0 };
     var revenue = 0;
     var visible = orders.filter(function (o) { return o.admin_hidden !== true; });
     visible.forEach(function (o) {
-      if (counts[o.status] != null) counts[o.status]++;
+      if (counts[o.status] != null) {
+        counts[o.status]++;
+        sums[o.status] += Number(o.total_amount) || 0;
+      }
       if (o.status === "paid" || o.status === "shipped") revenue += Number(o.total_amount) || 0;
     });
 
@@ -450,6 +594,9 @@
     $("statPaid").textContent = counts.paid;
     $("statShipped").textContent = counts.shipped;
     $("statRevenue").textContent = won(revenue);
+    if ($("statPendingAmt")) $("statPendingAmt").textContent = won(sums.pending_payment);
+    if ($("statPaidAmt")) $("statPaidAmt").textContent = won(sums.paid);
+    if ($("statShippedAmt")) $("statShippedAmt").textContent = won(sums.shipped);
     $("cntAll").textContent = visible.length;
     $("cntPending").textContent = counts.pending_payment;
     $("cntPaid").textContent = counts.paid;
@@ -595,6 +742,7 @@
       hiddenFieldMarkup('data-field="is_hidden"', p.hidden === true) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || "") + '" placeholder="예: SV8a / 슈링크 O" /></label>' +
+      oripaBoxMarkup(p) +
       "</div>" +
 
       '<div class="pf pf--wide">' +
@@ -657,6 +805,7 @@
       hiddenFieldMarkup('id="npHidden" data-field="is_hidden"', false) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 슈링크 O" /></label>' +
+      oripaBoxMarkup({ type: "box", totalSlots: 0, lineup: [] }) +
       "</div>" +
       '<div class="pf pf--wide">' +
       "<span>사진 <em>(선택)</em></span>" +
@@ -706,9 +855,11 @@
       if ($("npRate")) $("npRate").focus();
       return;
     }
+    var host = $("newProductForm");
+    var type = $("npType").value;
     var data = {
       name: ($("npName").value || "").trim(),
-      type: $("npType").value,
+      type: type,
       game: $("npGame").value,
       edition: $("npEdition").value || null,
       price: Number($("npPrice").value) || 0,
@@ -731,14 +882,36 @@
       return;
     }
 
+    var isOripa = type === "oripa";
+    var slotsEl = host ? host.querySelector('[data-field="total_slots"]') : null;
+    var slots = slotsEl ? Math.floor(Number(slotsEl.value) || 0) : 0;
+    if (isOripa && slotsEl && (slots < 1 || slots > 500)) {
+      toast("오리파는 총 구수를 1 ~ 500 사이로 입력해 주세요.", "warn");
+      if (slotsEl) slotsEl.focus();
+      return;
+    }
+    var lineup = isOripa ? readLineup(host) : [];
+
     setBusy($("npSave"), true, "저장 중…");
     s.saveProduct(data)
+      .then(function (p) {
+        var pid = p && p.id;
+        if (!isOripa || !s.syncOripaSeats || !pid) return p;
+        return s.syncOripaSeats(pid, slots)
+          .then(function () { return s.saveOripaLineup(pid, lineup); })
+          .then(function () { return p; })
+          .catch(function (err) {
+            toast((err && err.message) || "오리파 번호판·라인업을 저장하지 못했습니다.", "warn");
+            return p;
+          });
+      })
       .then(function (p) {
         setBusy($("npSave"), false);
         closeNewProduct();
         renderProducts();
         toast(
           (p ? p.name : "상품") + "을(를) 추가했습니다. " +
+            (isOripa ? "번호판 1~" + slots + "번이 준비되었습니다. " : "") +
             (data.is_hidden ? "숨김 상태라 손님 화면에는 보이지 않습니다." : "손님 사이트에 바로 보입니다."),
           "ok"
         );
@@ -803,6 +976,17 @@
       return;
     }
 
+    /* 오리파: 총 구수 + 당첨 라인업 */
+    var isOripa = values.type === "oripa";
+    var slotsEl = row.querySelector('[data-field="total_slots"]');
+    var slots = slotsEl ? Math.floor(Number(slotsEl.value) || 0) : 0;
+    if (isOripa && slotsEl && (slots < 1 || slots > 500)) {
+      toast("총 구수는 1 ~ 500 사이로 입력해 주세요.", "warn");
+      if (slotsEl) slotsEl.focus();
+      return;
+    }
+    var lineup = isOripa ? readLineup(row) : [];
+
     var btn = row.querySelector("[data-product-save]");
     setBusy(btn, true, "저장 중…");
 
@@ -820,6 +1004,17 @@
       point_rate: values.point_rate,
       is_hidden: values.is_hidden,
     })
+      .then(function (p) {
+        var pid = (p && p.id) || id;
+        if (!isOripa || !s.syncOripaSeats) return p;
+        return s.syncOripaSeats(pid, slots)
+          .then(function () { return s.saveOripaLineup(pid, lineup); })
+          .then(function () { return p; })
+          .catch(function (err) {
+            toast((err && err.message) || "오리파 번호판·라인업을 저장하지 못했습니다.", "warn");
+            return p;
+          });
+      })
       .then(function (p) {
         setBusy(btn, false);
         renderProducts();
@@ -1179,6 +1374,14 @@
 
   /* ── 이벤트 ───────────────────────────────────────────── */
   function wire() {
+    /* ── 탭 (주문 관리 · 상품 관리 · 회원 적립금 · 입금 로그) ── */
+    document.addEventListener("click", function (e) {
+      var tab = e.target.closest("[data-admin-tab]");
+      if (!tab) return;
+      e.preventDefault();
+      setAdminTab(tab.getAttribute("data-admin-tab"));
+    });
+
     /* ── 이메일 + 비밀번호 로그인 ── */
     $("loginForm").addEventListener("submit", function (e) {
       e.preventDefault();
@@ -1298,6 +1501,12 @@
         if (open) {
           var first = box.querySelector('[data-field="name"]');
           if (first) first.focus();
+          /* 오리파만: 번호판 현황 불러오기 */
+          var typeSel = box.querySelector('[data-field="type"]');
+          if (!typeSel || typeSel.value === "oripa") {
+            if (typeSel) typeSel.value = typeSel.value || "oripa";
+            loadSeatMap(box, row.getAttribute("data-id"));
+          }
         }
         return;
       }
@@ -1316,6 +1525,18 @@
     document.addEventListener("change", function (e) {
       var box = e.target.closest("[data-earn-toggle]");
       if (box) syncEarnRate(box);
+    });
+
+    /* 유형을 바꾸면 오리파 번호판 설정칸을 보이고 감춥니다. */
+    document.addEventListener("change", function (e) {
+      var sel = e.target.closest('[data-field="type"], #npType');
+      if (!sel) return;
+      var scope = sel.closest(".prow__edit") || e.target.closest("#newProductForm") || document;
+      toggleOripaBox(scope, sel.value === "oripa");
+      if (sel.value === "oripa" && scope !== document) {
+        var id = scope.getAttribute ? scope.getAttribute("data-id") : "";
+        if (id) loadSeatMap(scope, id);
+      }
     });
 
     $("orderList").addEventListener("click", function (e) {
@@ -1353,6 +1574,7 @@
 
   /* ── 시작 ─────────────────────────────────────────────── */
   function loadAll() {
+    renderTabs();
     loadOrders();
     renderProducts();
     renderSettings();

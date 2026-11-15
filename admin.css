@@ -562,3 +562,143 @@
   .rate-edit { width: 100%; justify-content: flex-end; }
   .set-row--rate { align-items: flex-start; flex-direction: column; }
 }
+
+/* ============================================================
+   사장님 페이지 — 4개 탭 (주문 관리 · 상품 관리 · 회원 적립금 · 입금 로그)
+   ============================================================ */
+.admin-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 5px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.03);
+}
+.admin-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 10px;
+  padding: 10px 4px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.admin-tab[aria-selected="true"] {
+  color: #241a06;
+  background: linear-gradient(180deg, #f0d9a9, #e3c07a);
+  border-color: transparent;
+  box-shadow: 0 8px 18px -12px rgba(227, 192, 122, 0.95);
+}
+.admin-tab:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+@media (max-width: 430px) {
+  .admin-tabs { grid-template-columns: repeat(2, 1fr); gap: 5px; }
+  .admin-tab { padding: 9px 2px; font-size: 0.76rem; }
+}
+
+.admin-pane .panel:last-child { margin-bottom: 0; }
+
+/* 매출 요약 카드 (주문 관리 탭 상단) */
+.admin-stat__amt {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.74rem;
+  font-weight: 750;
+  color: var(--gold-soft);
+  font-variant-numeric: tabular-nums;
+}
+.admin-stat--money { border-color: rgba(227, 192, 122, 0.4); background: rgba(227, 192, 122, 0.08); }
+.admin-stat--money .admin-stat__amt { font-size: 0.66rem; color: var(--text-faint); font-weight: 700; }
+
+/* ── 오리파 총 구수 · 라인업 편집 ───────────────────────── */
+.oripa-box {
+  margin: 4px 0 0;
+  padding: 11px 12px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(227, 192, 122, 0.4);
+  background: rgba(227, 192, 122, 0.05);
+}
+.oripa-box__title {
+  margin: 0 0 8px;
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  color: var(--gold-soft);
+}
+.oripa-box__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+@media (min-width: 720px) {
+  .oripa-box__row { grid-template-columns: 160px 1fr; }
+}
+.oripa-box__status {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+.oripa-seats {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+  margin: 8px 0 0;
+}
+.oripa-seats span {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-dim);
+}
+.oripa-seats span[data-s="available"] { background: rgba(255, 255, 255, 0.05); }
+.oripa-seats span[data-s="held"] { background: rgba(255, 176, 32, 0.16); border-color: rgba(255, 176, 32, 0.4); color: #ffd08a; }
+.oripa-seats span[data-s="sold"] { background: rgba(255, 255, 255, 0.02); color: #59616f; text-decoration: line-through; }
+.oripa-seats__empty { grid-column: 1 / -1; font-size: 0.7rem; color: var(--text-faint); }
+
+.lineup-edit { display: grid; gap: 6px; margin-top: 6px; }
+.lineup-edit__row {
+  display: grid;
+  grid-template-columns: 58px 1fr 52px;
+  gap: 6px;
+  align-items: center;
+}
+.lineup-edit__row .lineup-edit__rank {
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.lineup-edit__row input {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+.lineup-edit__row input[type="number"] { text-align: center; font-variant-numeric: tabular-nums; }
+.lineup-edit__row[data-tier="dia"] .lineup-edit__rank { color: #a8d8ff; }
+.lineup-edit__row[data-tier="gold"] .lineup-edit__rank { color: var(--gold); }
+.lineup-edit__row[data-tier="silver"] .lineup-edit__rank { color: #c3ccdb; }
+.lineup-edit__row[data-tier="bronze"] .lineup-edit__rank { color: #cd8f63; }
+.lineup-edit__row[data-tier="last"] .lineup-edit__rank { color: var(--gold-soft); }
+

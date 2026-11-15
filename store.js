@@ -191,13 +191,14 @@
 
   /* DB에 어느 칸까지 있는지 — dbColumns 값에 따라 쓸 수 있는 기능을 정합니다. */
   var DB_FEATURES = {
-    hidden:     { earn: true,  rate: true,  hidden: true },
-    point_rate: { earn: true,  rate: true,  hidden: false },
-    points:     { earn: true,  rate: false, hidden: false },
-    full:       { earn: false, rate: false, hidden: false },
-    v1:         { earn: false, rate: false, hidden: false },
-    min:        { earn: false, rate: false, hidden: false },
-    none:       { earn: false, rate: false, hidden: false },
+    oripa:      { earn: true,  rate: true,  hidden: true,  slots: true },
+    hidden:     { earn: true,  rate: true,  hidden: true,  slots: false },
+    point_rate: { earn: true,  rate: true,  hidden: false, slots: false },
+    points:     { earn: true,  rate: false, hidden: false, slots: false },
+    full:       { earn: false, rate: false, hidden: false, slots: false },
+    v1:         { earn: false, rate: false, hidden: false, slots: false },
+    min:        { earn: false, rate: false, hidden: false, slots: false },
+    none:       { earn: false, rate: false, hidden: false, slots: false },
   };
 
   function dbHas(feature) {
@@ -229,6 +230,8 @@
       if (row.image_url) out.image = row.image_url;
       out.imageUrl = row.image_url || "";
       out.earnPoints = row.earn_points !== false;
+      out.totalSlots = row.total_slots || 0;
+      if (row.lineup && row.lineup.length) out.lineup = row.lineup;
     }
 
     if (!out.type) out.type = "box";
@@ -283,8 +286,14 @@
       ? row.is_hidden === true
       : (local.is_hidden === undefined ? d.hidden === true : !!local.is_hidden);
     /* 기존 화면 함수들이 쓰는 잔여 수량 필드도 같이 맞춰 줍니다. */
-    if (out.type === "oripa") out.remainingUnits = stock;
-    else out.remaining = stock;
+    if (out.type === "oripa") {
+      out.remainingUnits = stock;
+      /* 번호판 총 구수(1~N)가 설정된 상품은 그 값을 총 구수로 씁니다. */
+      var slots = row ? (row.total_slots || 0) : Math.max(0, Math.floor(Number(local.total_slots) || 0));
+      if (slots > 0) out.totalUnits = slots;
+    } else {
+      out.remaining = stock;
+    }
     return out;
   }
 
@@ -336,12 +345,34 @@
   }
 
   /* ── 장바구니 ─────────────────────────────────────────── */
+  function seatList(v) {
+    if (!Array.isArray(v)) return null;
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < v.length; i++) {
+      var n = Math.floor(Number(v[i]) || 0);
+      if (n <= 0 || seen[n]) continue;
+      seen[n] = true;
+      out.push(n);
+    }
+    out.sort(function (a, b) { return a - b; });
+    return out.length ? out : null;
+  }
+
+  function seatText(seats) {
+    if (!seats || !seats.length) return "";
+    return seats.map(function (n) { return "#" + n; }).join(", ");
+  }
+
   function rawCart() {
     var list = readJson(LS_CART, []);
     if (!Array.isArray(list)) return [];
     return list
       .filter(function (x) { return x && typeof x.id === "string"; })
-      .map(function (x) { return { id: x.id, qty: clampInt(x.qty, 1, 999) }; });
+      .map(function (x) {
+        var seats = seatList(x.seats);
+        return { id: x.id, qty: clampInt(x.qty, 1, 999), seats: seats };
+      });
   }
 
   function saveCart(list) {
@@ -357,10 +388,16 @@
     list.forEach(function (line) {
       var p = getProduct(line.id);
       if (!p || p.hidden) { changed = true; return; }
+      /* 번호를 고른 오리파 줄은 번호 개수가 곪 수량입니다. */
+      if (line.seats && line.seats.length) {
+        if (line.qty !== line.seats.length) changed = true;
+        next.push({ id: line.id, qty: line.seats.length, seats: line.seats });
+        return;
+      }
       var qty = Math.min(line.qty, p.stock);
       if (qty <= 0) { changed = true; return; }
       if (qty !== line.qty) changed = true;
-      next.push({ id: line.id, qty: qty });
+      next.push({ id: line.id, qty: qty, seats: null });
     });
     if (changed) saveCart(next);
     return next;
@@ -373,6 +410,7 @@
         product: p,
         id: line.id,
         qty: line.qty,
+        seats: line.seats || null,
         unitPrice: Number(p.price) || 0,
         lineTotal: (Number(p.price) || 0) * line.qty,
       };
@@ -387,17 +425,51 @@
     return cartLines().reduce(function (n, l) { return n + l.lineTotal; }, 0);
   }
 
-  function addToCart(id, qty) {
+  function addToCart(id, qty, seats) {
     var p = getProduct(id);
     if (!p) return { ok: false, reason: "not_found", message: "상품을 찾을 수 없습니다." };
     if (p.hidden) return { ok: false, reason: "hidden", message: "현재 판매 중이지 않은 상품입니다." };
     if (p.soldOut) return { ok: false, reason: "soldout", message: "품절된 상품입니다." };
 
-    var add = clampInt(qty, 1, p.stock);
     var list = syncCart();
     var line = null;
     for (var i = 0; i < list.length; i++) if (list[i].id === id) line = list[i];
 
+    /* 번호를 고른 오리파 — 고른 번호 개수가 곪 수량 */
+    var pick = seatList(seats);
+    if (pick) {
+      var merged = seatList((line && line.seats ? line.seats : []).concat(pick));
+      if (merged.length > p.stock) {
+        return {
+          ok: false,
+          reason: "stock",
+          message: "남은 " + p.stock + unitOf(p) + "까지만 선택할 수 있습니다.",
+        };
+      }
+      if (line) {
+        line.seats = merged;
+        line.qty = merged.length;
+      } else {
+        list.push({ id: id, qty: merged.length, seats: merged });
+      }
+      saveCart(list);
+      return {
+        ok: true,
+        qty: merged.length,
+        seats: merged,
+        message: p.name + " " + merged.length + unitOf(p) + "(" + seatText(merged) + ")를 장바구니에 담았습니다.",
+      };
+    }
+
+    if (line && line.seats && line.seats.length) {
+      return {
+        ok: false,
+        reason: "seats",
+        message: p.name + "은(는) 번호를 고른 상태입니다. 번호판에서 선택을 바꿔 주세요.",
+      };
+    }
+
+    var add = clampInt(qty, 1, p.stock);
     var already = line ? line.qty : 0;
     if (already >= p.stock) {
       return {
@@ -410,7 +482,7 @@
     var clamped = already + add > p.stock;
 
     if (line) line.qty = nextQty;
-    else list.push({ id: id, qty: nextQty });
+    else list.push({ id: id, qty: nextQty, seats: null });
 
     saveCart(list);
     return {
@@ -423,6 +495,29 @@
     };
   }
 
+  /* 번호 선택 바꾸기 (오리파) — 바꾼 번호가 곪 수량 */
+  function setSeats(id, seats) {
+    var p = getProduct(id);
+    if (!p) return { ok: false, message: "상품을 찾을 수 없습니다." };
+    var list = syncCart();
+    var line = null;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) line = list[i];
+    if (!line) return { ok: false, message: "장바구니에 없는 상품입니다." };
+
+    var next = seatList(seats);
+    if (!next) {
+      removeFromCart(id);
+      return { ok: true, qty: 0, removed: true, message: "선택을 비우고 장바구니에서 뻐습니다." };
+    }
+    if (next.length > p.stock) {
+      return { ok: false, message: "남은 " + p.stock + unitOf(p) + "까지만 선택할 수 있습니다." };
+    }
+    line.seats = next;
+    line.qty = next.length;
+    saveCart(list);
+    return { ok: true, qty: next.length, seats: next };
+  }
+
   function setQty(id, qty) {
     var p = getProduct(id);
     if (!p) return { ok: false, message: "상품을 찾을 수 없습니다." };
@@ -430,6 +525,9 @@
     var line = null;
     for (var i = 0; i < list.length; i++) if (list[i].id === id) line = list[i];
     if (!line) return { ok: false, message: "장바구니에 없는 상품입니다." };
+    if (line.seats && line.seats.length) {
+      return { ok: false, message: "번호를 고른 오리파는 번호판에서 양을 바꿀 수 있습니다." };
+    }
 
     var want = clampInt(qty, 0, p.stock);
     if (want <= 0) {
@@ -506,6 +604,16 @@
     /* 주문 시점 재고를 한 번 더 확인 (원자적 차감) */
     for (var i = 0; i < lines.length; i++) {
       var cur = getProduct(lines[i].id);
+      if (lines[i].seats && lines[i].seats.length) {
+        var marks = localSeatMarks(lines[i].id).marks;
+        var taken = lines[i].seats.filter(function (n) { return marks[n]; });
+        if (taken.length) {
+          var e0 = new Error("이미 선택된 번호가 있습니다: #" + taken.join(", #"));
+          e0.code = "SEAT_TAKEN";
+          throw e0;
+        }
+        continue;
+      }
       if (!cur || cur.stock < lines[i].qty) {
         var err = new Error(
           (cur ? cur.name : "상품") + "의 남은 재고가 " +
@@ -529,6 +637,8 @@
         unit: unitOf(l.product),
         unit_price: l.unitPrice,
         qty: l.qty,
+        seats: l.seats || null,
+        seat_numbers: l.seats || null,
         line_total: l.lineTotal,
       };
     });
@@ -668,6 +778,7 @@
   }
 
   var PRODUCT_FIELDS = {
+    oripa:      "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden, total_slots, oripa_lineup(tier, name, qty)",
     hidden:     "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden",
     point_rate: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate",
     points: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points",
@@ -701,6 +812,10 @@
       })(),
       /* 숨김(비공개) — is_hidden 칸이 없는 DB에서는 모두 공개로 봅니다. */
       is_hidden: r.is_hidden === true,
+      /* 오리파 총 구수(번호판 1~N) — total_slots 칸이 없는 DB에서는 0 */
+      total_slots: Math.max(0, Math.floor(Number(r.total_slots) || 0)),
+      /* 사장님이 저장한 당첨 라인업 (oripa_lineup 표) */
+      lineup: Array.isArray(r.oripa_lineup) ? r.oripa_lineup : [],
     };
   }
 
@@ -724,7 +839,7 @@
   /* 새 열(subtitle·image_url·적립률·숨김)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
   function fetchDbProducts() {
     return connectDb().then(function (c) {
-      var order = ["hidden", "point_rate", "points", "full", "v1", "min"];
+      var order = ["oripa", "hidden", "point_rate", "points", "full", "v1", "min"];
       function attempt(i) {
         return c.from("products").select(PRODUCT_FIELDS[order[i]]).then(function (res) {
           if (res.error) {
@@ -788,6 +903,7 @@
         unit_price: Number(it.unit_price) || 0,
         qty: Number(it.qty) || 0,
         line_total: Number(it.line_total) || (Number(it.unit_price) || 0) * (Number(it.qty) || 0),
+        seat_numbers: Array.isArray(it.seat_numbers) && it.seat_numbers.length ? it.seat_numbers.map(Number) : null,
       };
     });
     return {
@@ -843,7 +959,7 @@
       address_detail: form.address_detail || "",
       memo: form.memo || "",
     };
-    var items = lines.map(function (l) { return { product_id: l.id, qty: l.qty }; });
+    var items = lines.map(function (l) { return { product_id: l.id, qty: l.qty, seat_numbers: l.seats || null }; });
     var usePoints = clampInt(form.usePoints, 0, 100000000);
 
     function done(data) {
@@ -1376,6 +1492,163 @@
         });
       })
       .catch(fallback);
+  }
+
+  /* ============================================================
+     오리파 번호판 (1~N번) — 번호 조회 · 총 구수 동기화 · 라인업
+     ------------------------------------------------------------
+     · DB 모드: get_oripa_board / sync_oripa_tickets / admin_save_oripa_lineup RPC
+     · 테스트 모드: 이 브라우저 주문 기록으로 번호 상태를 만듭니다.
+     · 패치 SQL 전 DB: ready=false → 화면은 기존 수량 스테퍼로 대체됩니다.
+     ============================================================ */
+  function localSeatTotal(id) {
+    var p = getProduct(id);
+    if (!p) return 0;
+    var local = productState[id] || {};
+    var t = Math.floor(Number(local.total_slots) || 0);
+    if (t > 0) return t;
+    return Math.max(0, Math.floor(Number(p.totalUnits) || 0));
+  }
+
+  /* 테스트 모드: 주문 기록으로 번호 상태(입금대기=held, 입금완료·발송=sold)를 만듭니다. */
+  function localSeatMarks(id) {
+    var marks = {};
+    var total = localSeatTotal(id);
+    var now = Date.now();
+    readOrders().forEach(function (o) {
+      if (o.status === "cancelled") return;
+      if (o.status === "pending_payment" && expiresAtOf(o) <= now) return;
+      (o.items || []).forEach(function (it) {
+        if (it.product_id !== id) return;
+        var seats = seatList(it.seat_numbers || it.seats);
+        if (!seats) return;
+        var st = o.status === "pending_payment" ? "held" : "sold";
+        seats.forEach(function (n) { marks[n] = st; });
+      });
+    });
+    return { total: total, marks: marks, ready: total > 0 };
+  }
+
+  function localLineup(id) {
+    var local = productState[id] || {};
+    if (Array.isArray(local.lineup) && local.lineup.length) return local.lineup;
+    var base = findBase(id) || extraById[id] || null;
+    return (base && base.prizes) || [];
+  }
+
+  function localBoard(id) {
+    var info = localSeatMarks(id);
+    var seats = [];
+    for (var n = 1; n <= info.total; n++) seats.push({ n: n, s: info.marks[n] || "available" });
+    return {
+      product_id: id,
+      total_slots: info.total,
+      seats: seats,
+      lineup: localLineup(id),
+      ready: info.total > 0,
+    };
+  }
+
+  /* 번호판 상태 (손님·사장님 공용) */
+  function getOripaBoard(id) {
+    var pid = String(id || "");
+    if (!pid) return Promise.resolve({ ready: false, total_slots: 0, seats: [], lineup: [] });
+    if (mode !== "db") return Promise.resolve(localBoard(pid));
+    return rpc("get_oripa_board", { p_product_id: pid })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        if (!raw) return { product_id: pid, ready: false, total_slots: 0, seats: [], lineup: [] };
+        return {
+          product_id: pid,
+          total_slots: Number(raw.total_slots) || 0,
+          seats: (raw.seats || []).map(function (x) {
+            return { n: Number(x.n), s: String(x.s || "available") };
+          }),
+          lineup: raw.lineup || [],
+          available: Number(raw.available) || 0,
+          held: Number(raw.held) || 0,
+          sold: Number(raw.sold) || 0,
+          ready: (Number(raw.total_slots) || 0) > 0,
+        };
+      })
+      .catch(function (err) {
+        if (window.console && console.warn) {
+          console.warn("[ALL PO ONE] 번호판을 불러오지 못했습니다(패치 전 DB일 수 있습니다):", err);
+        }
+        return { product_id: pid, ready: false, total_slots: 0, seats: [], lineup: [] };
+      });
+  }
+
+  function seatPatchNeeded() {
+    var e = new Error(
+      "오리파 번호판은 DB 패치가 필요합니다. Supabase SQL Editor 에서 " +
+      "supabase-patch-oripa-seats.sql 과 supabase-patch-oripa-seats-2.sql 을 한 번 실행해 주세요."
+    );
+    e.code = "NEED_UPGRADE";
+    return e;
+  }
+
+  /* 사장님: 총 구수 저장 → 1~N번 번호 생성·동기화 (이미 팔린·입금대기 번호는 유지) */
+  function syncOripaSeats(id, total) {
+    var pid = String(id || "");
+    var want = clampInt(total, 0, 500);
+
+    if (mode !== "db") {
+      var info = localSeatMarks(pid);
+      var taken = Object.keys(info.marks).length;
+      var st = productState[pid] || {};
+      var next = { stock: Math.max(0, want - taken), total_slots: want };
+      if (st.status) next.status = st.status;
+      if (st.deleted) next.deleted = st.deleted;
+      productState[pid] = next;
+      saveProductState();
+      emit("products");
+      return Promise.resolve({ total_slots: want, available: next.stock, seats: want });
+    }
+
+    return rpc("sync_oripa_tickets", { p_product_id: pid, p_total_slots: want })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return fetchDbProducts().then(function () {
+          emit("products");
+          return raw || { total_slots: want };
+        });
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw seatPatchNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 당첨 라인업 5등급 저장 */
+  function saveOripaLineup(id, items) {
+    var pid = String(id || "");
+    var rows = (items || []).map(function (x) {
+      return {
+        tier: String(x.tier || ""),
+        name: String(x.name == null ? "" : x.name).trim(),
+        qty: Math.max(0, Math.floor(Number(x.qty) || 0)),
+      };
+    }).filter(function (x) { return x.tier && x.name; });
+
+    if (mode !== "db") {
+      var st = productState[pid] || {};
+      st.lineup = rows;
+      productState[pid] = st;
+      saveProductState();
+      emit("products");
+      return Promise.resolve({ lineup: rows });
+    }
+
+    return rpc("admin_save_oripa_lineup", { p_product_id: pid, p_items: rows })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return raw || { lineup: rows };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw seatPatchNeeded();
+        throw err;
+      });
   }
 
   /* ============================================================
@@ -2194,8 +2467,15 @@
     cartTotal: cartTotal,
     addToCart: addToCart,
     setQty: setQty,
+    setSeats: setSeats,
+    seatText: seatText,
     removeFromCart: removeFromCart,
     clearCart: clearCart,
+
+    /* 오리파 번호판 */
+    getOripaBoard: getOripaBoard,
+    syncOripaSeats: syncOripaSeats,
+    saveOripaLineup: saveOripaLineup,
 
     placeOrder: placeOrder,
     lookupOrders: lookupOrders,

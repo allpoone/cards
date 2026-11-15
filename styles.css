@@ -2318,3 +2318,346 @@ body.auth-pending #headerUser { visibility: hidden; }
 /* 마이페이지 주문 내역: 상태 필터 칩 */
 .mypage__order-filters { margin: 0 0 12px; }
 .mypage__order-filters .chip { padding: 6px 11px; font-size: 0.76rem; }
+
+/* ============================================================
+   오리파 — 당첨 라인업 5등급 (다이아 · 골드 · 실버 · 브론즈 · 라스트원상)
+   ============================================================ */
+.lineup__list { gap: 6px; }
+
+.prize {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.82rem;
+  overflow: hidden;
+}
+.prize::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--tier);
+  opacity: 0.95;
+}
+.prize__rank {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 68px;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  color: var(--tier);
+  white-space: nowrap;
+}
+.prize__rank::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--tier);
+  box-shadow: 0 0 8px var(--tier);
+}
+.prize__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  line-height: 1.4;
+}
+.prize__qty {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-faint);
+  font-size: 0.66rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.prize--dia {
+  --tier: #a8d8ff;
+  border-color: rgba(168, 216, 255, 0.36);
+  background: linear-gradient(90deg, rgba(168, 216, 255, 0.17), rgba(168, 216, 255, 0.03) 60%, rgba(168, 216, 255, 0.07));
+  box-shadow: 0 0 26px -14px rgba(168, 216, 255, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.prize--dia::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120px 60px at 16% 0%, rgba(224, 244, 255, 0.16), transparent 70%);
+  pointer-events: none;
+}
+.prize--dia .prize__name { color: #eaf6ff; font-weight: 700; }
+.prize--gold {
+  --tier: var(--gold);
+  border-color: rgba(227, 192, 122, 0.34);
+  background: linear-gradient(90deg, rgba(227, 192, 122, 0.15), rgba(227, 192, 122, 0.02));
+}
+.prize--silver {
+  --tier: #c3ccdb;
+  border-color: rgba(195, 204, 219, 0.26);
+  background: linear-gradient(90deg, rgba(195, 204, 219, 0.12), rgba(195, 204, 219, 0.02));
+}
+.prize--bronze {
+  --tier: #cd8f63;
+  border-color: rgba(205, 143, 99, 0.28);
+  background: linear-gradient(90deg, rgba(205, 143, 99, 0.12), rgba(205, 143, 99, 0.02));
+}
+.prize--last {
+  --tier: var(--gold-soft);
+  border: 1px dashed rgba(227, 192, 122, 0.45);
+  background: rgba(227, 192, 122, 0.05);
+}
+
+/* ============================================================
+   오리파 — 1~N번 번호 선택판
+   ============================================================ */
+.seat {
+  margin: 0 0 14px;
+  padding: 13px 13px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012));
+}
+.seat__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.seat__title {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 820;
+  letter-spacing: -0.01em;
+}
+.seat__meta {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.seat__meta b { color: var(--text-dim); font-weight: 800; }
+.seat__meta .seat__meta-left { color: var(--gold-soft); }
+.seat__loading {
+  margin: 0;
+  padding: 14px 4px;
+  font-size: 0.76rem;
+  color: var(--text-faint);
+  text-align: center;
+}
+.seat__grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+.seat__btn {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.seat__btn:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.24); }
+.seat__btn:active { transform: scale(0.96); }
+.seat__btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.seat__btn.is-picked {
+  border-color: transparent;
+  background: linear-gradient(180deg, #f0d9a9, #e3c07a);
+  color: #241a06;
+  font-weight: 850;
+  box-shadow: 0 0 0 1px rgba(240, 217, 169, 0.6), 0 8px 18px -10px rgba(227, 192, 122, 0.95);
+}
+.seat__btn.is-off {
+  color: #59616f;
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: not-allowed;
+}
+.seat__btn.is-off::after {
+  content: "";
+  position: absolute;
+  left: 26%;
+  right: 26%;
+  top: 50%;
+  height: 1.5px;
+  margin-top: -0.75px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.38);
+  transform: rotate(-9deg);
+}
+.seat__btn.is-off:hover { border-color: rgba(255, 255, 255, 0.06); }
+.seat__btn.is-lock { color: #6a6250; }
+.seat__btn.is-lock::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 6px rgba(255, 176, 32, 0.85);
+}
+.seat__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+}
+.seat__legend li { display: inline-flex; align-items: center; gap: 5px; }
+.seat__dot {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.seat__dot--on { border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.05); }
+.seat__dot--picked { background: linear-gradient(180deg, #f0d9a9, #e3c07a); }
+.seat__dot--off {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+.seat__dot--off::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 50%;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.4);
+  transform: rotate(-9deg);
+}
+.seat__dot--lock::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 5px rgba(255, 176, 32, 0.9);
+}
+.seat__sum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(227, 192, 122, 0.3);
+  background: rgba(227, 192, 122, 0.09);
+  font-size: 0.74rem;
+}
+.seat__sum-label {
+  color: var(--gold);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.seat__sum-nums { display: flex; gap: 5px; flex-wrap: wrap; }
+.seat__sum-nums b,
+.seat__sum-nums em {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f0d9a9, #e3c07a);
+  color: #241a06;
+  font-size: 0.72rem;
+  font-weight: 850;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.seat__sum-nums .seat__sum-none { font-style: normal; color: var(--text-faint); }
+.seat__sum-total {
+  margin-left: auto;
+  color: var(--gold-soft);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.seat__buy { flex-direction: column; gap: 1px; line-height: 1.12; padding-block: 9px; }
+.seat__buy span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0.82;
+  font-variant-numeric: tabular-nums;
+}
+.seat__note {
+  margin: 9px 0 0;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  line-height: 1.55;
+  text-align: center;
+}
+.seat__note--warn { color: #ffd08a; }
+
+/* 장바구니 · 주문서 · 주문 카드의 선택 번호 표시 */
+.seat-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.seat-tags b {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(227, 192, 122, 0.16);
+  border: 1px solid rgba(227, 192, 122, 0.34);
+  color: var(--gold-soft);
+  font-size: 0.66rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.cart-line__seat {
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  color: var(--gold-soft);
+  font-variant-numeric: tabular-nums;
+}
+.cart-line__seat--empty { color: var(--text-faint); }
+@media (max-width: 420px) {
+  .prize__rank { width: 60px; }
+}
+
+/* 주문·장바구니의 선택 번호 표시 */
+.seat-nums {
+  font-style: normal;
+  font-weight: 800;
+  color: var(--gold-soft);
+  font-variant-numeric: tabular-nums;
+}
+.cart-line__seatsum {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--gold-soft);
+  font-variant-numeric: tabular-nums;
+}

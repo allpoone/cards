@@ -327,6 +327,245 @@ revoke all on sequence public.point_transactions_id_seq from anon, authenticated
 -- 취소(손님 직접 취소 · 10분 미입금 자동 취소 · 사장님 취소)에서 모두 씁니다.
 -- 차감했던 재고를 되돌리고, 품절이었으면 다시 판매중으로 바꿉니다.
 -- ============================================================
+alter table public.products add column if not exists total_slots integer;
+alter table public.order_items add column if not exists seat_numbers integer[];
+create table if not exists public.oripa_tickets (
+  product_id text not null references public.products (id) on delete cascade,
+  seat_no    integer not null,
+  status     text not null default 'available',
+  order_id   uuid references public.orders (id) on delete set null,
+  held_until timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (product_id, seat_no)
+);
+alter table public.oripa_tickets drop constraint if exists oripa_tickets_status_check;
+alter table public.oripa_tickets add constraint oripa_tickets_status_check
+  check (status in ('available', 'held', 'sold'));
+create index if not exists oripa_tickets_order_idx on public.oripa_tickets (order_id);
+create table if not exists public.oripa_lineup (
+  product_id text not null references public.products (id) on delete cascade,
+  tier       text not null,
+  name       text not null default '',
+  qty        integer not null default 1,
+  primary key (product_id, tier)
+);
+alter table public.oripa_lineup drop constraint if exists oripa_lineup_tier_check;
+alter table public.oripa_lineup add constraint oripa_lineup_tier_check
+  check (tier in ('dia', 'gold', 'silver', 'bronze', 'last'));
+alter table public.oripa_tickets enable row level security;
+alter table public.oripa_lineup  enable row level security;
+revoke all on public.oripa_tickets from anon, authenticated;
+revoke all on public.oripa_lineup  from anon, authenticated;
+create or replace function private.sync_oripa_stock(p_product_id text)
+returns void
+language plpgsql
+security definer
+set search_path = private, public, pg_temp
+as $$
+declare
+  v_left int := 0;
+begin
+  select count(*)::int into v_left
+    from public.oripa_tickets
+   where product_id = p_product_id and status = 'available';
+  update public.products
+     set stock = v_left,
+         status = case
+                    when v_left = 0 then 'sold'
+                    when v_left > 2 then 'available'
+                    else 'low'
+                  end,
+         updated_at = now()
+   where id = p_product_id and type = 'oripa';
+end;
+$$;
+revoke all on function private.sync_oripa_stock(text) from public;
+create or replace function private.trg_oripa_tickets_stock()
+returns trigger
+language plpgsql
+security definer
+set search_path = private, public, pg_temp
+as $$
+begin
+  if tg_op = 'DELETE' then
+    perform private.sync_oripa_stock(old.product_id);
+    return old;
+  end if;
+  perform private.sync_oripa_stock(new.product_id);
+  return new;
+end;
+$$;
+drop trigger if exists oripa_tickets_stock on public.oripa_tickets;
+create trigger oripa_tickets_stock
+after insert or update or delete on public.oripa_tickets
+for each row execute function private.trg_oripa_tickets_stock();
+create or replace function private.trg_orders_oripa_seats()
+returns trigger
+language plpgsql
+security definer
+set search_path = private, public, pg_temp
+as $$
+begin
+  if new.status in ('paid', 'shipped') and old.status = 'pending_payment' then
+    update public.oripa_tickets
+       set status = 'sold', held_until = null, updated_at = now()
+     where order_id = new.id and status = 'held';
+  elsif new.status = 'cancelled' and old.status in ('pending_payment', 'paid', 'shipped') then
+    update public.oripa_tickets
+       set status = 'available', order_id = null, held_until = null, updated_at = now()
+     where order_id = new.id and status in ('held', 'sold');
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists orders_oripa_seats on public.orders;
+create trigger orders_oripa_seats
+after update of status on public.orders
+for each row execute function private.trg_orders_oripa_seats();
+create or replace function public.sync_oripa_tickets(p_product_id text, p_total_slots integer)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id    text := nullif(btrim(coalesce(p_product_id, '')), '');
+  v_total int := greatest(0, coalesce(p_total_slots, 0));
+  v_type  text;
+  v_avail int := 0;
+  v_held  int := 0;
+  v_sold  int := 0;
+  v_max   int := 0;
+begin
+  perform private.assert_admin(null);
+  select type into v_type from public.products where id = v_id;
+  if v_type is null then
+    raise exception '상품을 찾을 수 없습니다: %', p_product_id using errcode = '22023';
+  end if;
+  if v_type != 'oripa' then
+    raise exception '오리파 상품에만 번호판을 만들 수 있습니다.' using errcode = '22023';
+  end if;
+  if v_total > 500 then
+    raise exception '총 구수는 500까지 입력할 수 있습니다.' using errcode = '22023';
+  end if;
+  delete from public.oripa_tickets
+   where product_id = v_id and seat_no > v_total and status = 'available';
+  insert into public.oripa_tickets (product_id, seat_no)
+  select v_id, g from generate_series(1, v_total) g
+  on conflict (product_id, seat_no) do nothing;
+  update public.products set total_slots = v_total, updated_at = now() where id = v_id;
+  perform private.sync_oripa_stock(v_id);
+  select count(*) filter (where status = 'available')::int,
+         count(*) filter (where status = 'held')::int,
+         count(*) filter (where status = 'sold')::int,
+         coalesce(max(seat_no), 0)::int
+    into v_avail, v_held, v_sold, v_max
+    from public.oripa_tickets where product_id = v_id;
+  return jsonb_build_object(
+    'product_id', v_id,
+    'total_slots', v_total,
+    'seats', coalesce(v_max, 0),
+    'available', coalesce(v_avail, 0),
+    'held', coalesce(v_held, 0),
+    'sold', coalesce(v_sold, 0)
+  );
+end;
+$$;
+grant execute on function public.sync_oripa_tickets(text, integer) to authenticated;
+create or replace function public.get_oripa_seats(p_product_id text)
+returns table (seat_no integer, status text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.expire_unpaid_orders();
+  return query
+    select t.seat_no as seat_no, t.status as status
+      from public.oripa_tickets t
+     where t.product_id = btrim(coalesce(p_product_id, ''))
+     order by t.seat_no;
+end;
+$$;
+grant execute on function public.get_oripa_seats(text) to anon, authenticated;
+create or replace function public.get_oripa_board(p_product_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id     text := btrim(coalesce(p_product_id, ''));
+  v_total  int := 0;
+  v_max    int := 0;
+  v_avail  int := 0;
+  v_held   int := 0;
+  v_sold   int := 0;
+  v_seats  jsonb := '[]'::jsonb;
+  v_lineup jsonb := '[]'::jsonb;
+begin
+  perform public.expire_unpaid_orders();
+  select coalesce(total_slots, 0) into v_total from public.products where id = v_id;
+  v_total := coalesce(v_total, 0);
+  select coalesce(max(seat_no), 0) into v_max
+    from public.oripa_tickets where product_id = v_id;
+  if v_max > v_total then
+    v_total := v_max;
+  end if;
+  select coalesce(jsonb_agg(jsonb_build_object('n', t.seat_no, 's', t.status) order by t.seat_no), '[]'::jsonb)
+    into v_seats
+    from public.oripa_tickets t
+   where t.product_id = v_id;
+  select coalesce(jsonb_agg(jsonb_build_object('tier', l.tier, 'name', l.name, 'qty', l.qty)
+                            order by case l.tier
+                                       when 'dia' then 1 when 'gold' then 2 when 'silver' then 3
+                                       when 'bronze' then 4 else 5 end), '[]'::jsonb)
+    into v_lineup
+    from public.oripa_lineup l
+   where l.product_id = v_id;
+  select count(*) filter (where status = 'available')::int,
+         count(*) filter (where status = 'held')::int,
+         count(*) filter (where status = 'sold')::int
+    into v_avail, v_held, v_sold
+    from public.oripa_tickets where product_id = v_id;
+  return jsonb_build_object(
+    'product_id', v_id,
+    'total_slots', v_total,
+    'seats', v_seats,
+    'lineup', v_lineup,
+    'available', coalesce(v_avail, 0),
+    'held', coalesce(v_held, 0),
+    'sold', coalesce(v_sold, 0)
+  );
+end;
+$$;
+grant execute on function public.get_oripa_board(text) to anon, authenticated;
+create or replace function public.admin_save_oripa_lineup(p_product_id text, p_items jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id text := nullif(btrim(coalesce(p_product_id, '')), '');
+begin
+  perform private.assert_admin(null);
+  if v_id is null or not exists (select 1 from public.products where id = v_id) then
+    raise exception '상품을 찾을 수 없습니다: %', p_product_id using errcode = '22023';
+  end if;
+  delete from public.oripa_lineup where product_id = v_id;
+  insert into public.oripa_lineup (product_id, tier, name, qty)
+  select v_id, e ->> 'tier', btrim(coalesce(e ->> 'name', '')), greatest(0, coalesce((e ->> 'qty')::int, 0))
+    from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) e
+   where e ->> 'tier' in ('dia', 'gold', 'silver', 'bronze', 'last')
+     and btrim(coalesce(e ->> 'name', '')) != ''
+  on conflict (product_id, tier) do update
+     set name = excluded.name, qty = excluded.qty;
+  return public.get_oripa_board(v_id);
+end;
+$$;
+grant execute on function public.admin_save_oripa_lineup(text, jsonb) to authenticated;
+
 create or replace function private.restore_order_stock(p_order_id uuid)
 returns void
 language plpgsql
@@ -599,7 +838,8 @@ as $$
         'product_name', i.product_name,
         'unit_price',   i.unit_price,
         'qty',          i.qty,
-        'line_total',   i.line_total
+        'line_total',   i.line_total,
+        'seat_numbers', coalesce(i.seat_numbers, '{}'::int[])
       ) order by i.id)
       from public.order_items i
       where i.order_id = o.id
@@ -608,6 +848,7 @@ as $$
   from public.orders o
   where o.id = p_id;
 $$;
+revoke all on function public.order_json(uuid) from public;
 
 revoke all on function public.order_json(uuid) from public;
 
@@ -626,14 +867,19 @@ set search_path = public, pg_temp
 as $$
 declare
   v_item      record;
+  v_pname     text;
   v_stock     int;
   v_price     int;
+  v_type      text;
+  v_hidden    boolean;
   v_order_id  uuid;
   v_order_no  text;
   v_suffix    text;
   v_total     int := 0;
   v_subtotal  int := 0;
-  v_eligible  int := 0;
+  v_earn_raw  numeric := 0;
+  v_step1     numeric;
+  v_step2     numeric;
   v_use       int := greatest(0, coalesce(p_use_points, 0));
   v_balance   int := 0;
   v_rate      numeric(5,2) := 2;
@@ -646,11 +892,12 @@ declare
   v_ok        boolean := false;
   v_uid       uuid := auth.uid();
   v_require   boolean := false;
+  v_qty       int := 0;
+  v_free      int[] := '{}'::int[];
+  v_bad       int[] := null;
 begin
-  /* 10분 지난 미입금 주문을 먼저 정리 (재고·적립금 복구) */
   perform public.expire_unpaid_orders();
 
-  /* --- 회원 전용 설정 확인 --------------------------------- */
   select require_login_to_order, coalesce(point_rate, 2)
     into v_require, v_rate
     from public.shop_public_settings
@@ -660,79 +907,25 @@ begin
     raise exception '이 쇼핑몰은 회원만 주문할 수 있습니다. 로그인 또는 회원가입 후 주문해 주세요.'
       using errcode = '42501';
   end if;
-
-  /* --- 입력 검증 ------------------------------------------- */
   if v_name is null then
     raise exception '주문자명을 입력해 주세요.' using errcode = '22023';
   end if;
-  if length(v_phone) < 9 or length(v_phone) > 11 then
+  if length(v_phone) not between 9 and 11 then
     raise exception '연락처를 정확히 입력해 주세요.' using errcode = '22023';
   end if;
-  if p_items is null
-     or jsonb_typeof(p_items) <> 'array'
-     or jsonb_array_length(p_items) = 0 then
+  if p_items is null or jsonb_typeof(p_items) != 'array' or jsonb_array_length(p_items) = 0 then
     raise exception '주문할 상품이 없습니다.' using errcode = '22023';
   end if;
-
-  /* --- 적립금은 로그인 회원만 사용할 수 있습니다 ------------ */
   if v_use > 0 and v_uid is null then
-    raise exception '적립금은 로그인한 회원만 사용할 수 있습니다.'
-      using errcode = '42501';
+    raise exception '적립금은 로그인한 회원만 사용할 수 있습니다.' using errcode = '42501';
   end if;
 
-  /* --- 재고 차감 (같은 상품은 합산, id 순서로 잠가 교착 방지) --- */
-  for v_item in
-    select a.product_id, sum(a.qty)::int as qty
-    from (
-      select e ->> 'product_id' as product_id,
-             coalesce((e ->> 'qty')::int, 0) as qty
-      from jsonb_array_elements(p_items) e
-    ) a
-    group by a.product_id
-    order by a.product_id
-  loop
-    if v_item.qty is null or v_item.qty <= 0 then
-      raise exception '수량이 올바르지 않습니다: %', v_item.product_id
-        using errcode = '22023';
-    end if;
-
-    select price, stock
-      into v_price, v_stock
-      from public.products
-     where id = v_item.product_id
-       for update;
-
-    if not found then
-      raise exception '상품을 찾을 수 없습니다: %', v_item.product_id
-        using errcode = '22023';
-    end if;
-
-    if v_stock < v_item.qty then
-      raise exception '% 의 남은 재고가 %개입니다. 수량을 조정해 주세요.',
-        v_item.product_id, v_stock
-        using errcode = '22023';
-    end if;
-
-    update public.products
-       set stock = stock - v_item.qty,
-           status = case when stock - v_item.qty <= 0 then 'sold' else status end,
-           updated_at = now()
-     where id = v_item.product_id;
-  end loop;
-
-  /* --- 주문번호 생성 + 주문 저장 --------------------------- */
-  while not v_ok and v_attempt < 20 loop
+  while not v_ok and v_attempt between 0 and 19 loop
     v_attempt := v_attempt + 1;
-
-    select string_agg(
-             substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789',
-                    1 + floor(random() * 32)::int, 1), '')
+    select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 1 + floor(random() * 32)::int, 1), '')
       into v_suffix
       from generate_series(1, 4);
-
-    v_order_no := 'APO-' || to_char(v_created at time zone 'Asia/Seoul', 'YYYYMMDD')
-                  || '-' || v_suffix;
-
+    v_order_no := 'APO-' || to_char(v_created at time zone 'Asia/Seoul', 'YYYYMMDD') || '-' || v_suffix;
     begin
       insert into public.orders (
         order_no, status, customer_name, depositor_name, phone,
@@ -744,11 +937,9 @@ begin
         nullif(btrim(coalesce(p_customer ->> 'address', '')), ''),
         nullif(btrim(coalesce(p_customer ->> 'address_detail', '')), ''),
         nullif(btrim(coalesce(p_customer ->> 'memo', '')), ''),
-        v_uid,
-        0, v_created, v_created
+        v_uid, 0, v_created, v_created
       )
       returning id into v_order_id;
-
       v_ok := true;
     exception when unique_violation then
       v_ok := false;
@@ -759,28 +950,111 @@ begin
     raise exception '주문번호를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.';
   end if;
 
-  /* --- 주문 상품 줄 저장 ---------------------------------- */
-  insert into public.order_items (
-    order_id, product_id, product_name, unit_price, qty, line_total
-  )
-  select v_order_id, p.id, p.name, p.price, a.qty, p.price * a.qty
-  from (
-    select e ->> 'product_id' as product_id,
-           sum(coalesce((e ->> 'qty')::int, 0))::int as qty
-    from jsonb_array_elements(p_items) e
-    group by 1
-  ) a
-  join public.products p on p.id = a.product_id;
+  for v_item in
+    with raw as (
+      select e ->> 'product_id' as pid,
+             coalesce((e ->> 'qty')::int, 0) as qty,
+             coalesce(e -> 'seat_numbers', '[]'::jsonb) as seats
+        from jsonb_array_elements(p_items) e
+    )
+    select r.pid as product_id,
+           case when coalesce(array_length(s.seats, 1), 0) > 0
+                then array_length(s.seats, 1)
+                else coalesce(sum(r.qty), 0)::int end as qty,
+           s.seats as seats
+      from raw r
+      left join lateral (
+        select array_agg(distinct (x.value)::int order by (x.value)::int) as seats
+          from jsonb_array_elements_text(r.seats) x
+      ) s on true
+     group by r.pid, s.seats
+     order by r.pid
+  loop
+    v_qty := coalesce(v_item.qty, 0);
+    if v_qty = 0 then
+      raise exception '수량이 올바르지 않습니다: %', v_item.product_id using errcode = '22023';
+    end if;
 
-  /* 상품 합계 / 적립 대상(적립 ON 상품) 합계 */
+    select p.name, p.price, p.stock, p.type, p.is_hidden
+      into v_pname, v_price, v_stock, v_type, v_hidden
+      from public.products p
+     where p.id = v_item.product_id
+       for update;
+
+    if not found then
+      raise exception '상품을 찾을 수 없습니다: %', v_item.product_id using errcode = '22023';
+    end if;
+    if v_hidden then
+      raise exception '현재 판매 중이지 않은 상품입니다: %', v_item.product_id using errcode = '22023';
+    end if;
+
+    if v_item.seats is not null then
+      if v_type != 'oripa' then
+        raise exception '번호 선택은 오리파 상품에서만 쓸 수 있습니다: %', v_item.product_id
+          using errcode = '22023';
+      end if;
+
+      perform 1
+        from public.oripa_tickets t
+       where t.product_id = v_item.product_id
+         and t.seat_no = any(v_item.seats)
+         for update;
+
+      select coalesce(array_agg(t.seat_no order by t.seat_no), '{}'::int[])
+        into v_free
+        from public.oripa_tickets t
+       where t.product_id = v_item.product_id
+         and t.seat_no = any(v_item.seats)
+         and t.status = 'available';
+
+      if coalesce(array_length(v_free, 1), 0) != v_qty then
+        select array_agg(s order by s)
+          into v_bad
+          from unnest(v_item.seats) s
+         where not (s = any(v_free));
+        raise exception '이미 선택된 번호가 있습니다: #%',
+          array_to_string(coalesce(v_bad, v_item.seats), ', #')
+          using errcode = '22023';
+      end if;
+
+      update public.oripa_tickets
+         set status = 'held',
+             order_id = v_order_id,
+             held_until = v_created + interval '10 minutes',
+             updated_at = now()
+       where product_id = v_item.product_id
+         and seat_no = any(v_item.seats)
+         and status = 'available';
+    else
+      if v_qty > v_stock then
+        raise exception '% 의 남은 재고가 %개입니다. 수량을 조정해 주세요.',
+          v_item.product_id, v_stock
+          using errcode = '22023';
+      end if;
+
+      update public.products
+         set stock = stock - v_qty,
+             status = case when greatest(stock - v_qty, 0) = 0 then 'sold' else status end,
+             updated_at = now()
+       where id = v_item.product_id;
+    end if;
+
+    insert into public.order_items (
+      order_id, product_id, product_name, unit_price, qty, line_total, seat_numbers
+    ) values (
+      v_order_id, v_item.product_id, v_pname, v_price, v_qty, v_price * v_qty, v_item.seats
+    );
+  end loop;
+
   select coalesce(sum(i.line_total), 0),
-         coalesce(sum(case when p.earn_points then i.line_total else 0 end), 0)
-    into v_subtotal, v_eligible
+         coalesce(sum(case when p.earn_points
+                           then i.line_total * (coalesce(p.point_rate, v_rate) / 100.0)
+                           else 0 end), 0)
+    into v_subtotal, v_earn_raw
     from public.order_items i
     join public.products p on p.id = i.product_id
    where i.order_id = v_order_id;
 
-  /* --- 적립금 사용 검증 + 차감 ---------------------------- */
   if v_use > 0 then
     if v_use > v_subtotal then
       raise exception '적립금은 주문 금액(%)보다 많이 사용할 수 없습니다.', v_subtotal
@@ -793,21 +1067,21 @@ begin
      where user_id = v_uid
        for update;
 
-    if v_balance is null or v_balance < v_use then
+    if v_balance is null or v_use > v_balance then
       raise exception '보유 적립금이 부족합니다. (보유 %P)', coalesce(v_balance, 0)
         using errcode = '22023';
     end if;
 
-    /* 실결제 비율만큼 적립 대상 금액에서 빼고 적립금을 계산합니다. */
     if v_subtotal > 0 then
-      v_eligible := greatest(0,
-        round(v_eligible::numeric * (v_subtotal - v_use)::numeric / v_subtotal::numeric)::int);
+      v_earn_raw := v_earn_raw * (v_subtotal - v_use)::numeric / v_subtotal::numeric;
     else
-      v_eligible := 0;
+      v_earn_raw := 0;
     end if;
   end if;
 
-  v_earn := private.calc_earn_points(v_eligible, v_rate);
+  v_step1 := round(v_earn_raw / 10.0) * 10;
+  v_step2 := round(v_step1 / 100.0) * 100;
+  v_earn  := greatest(0, v_step2)::int;
   v_total := v_subtotal - v_use;
 
   update public.orders
@@ -2045,3 +2319,5 @@ select
   (select deposit_secret from private.shop_settings)                as "입금확인_시크릿",
   (select point_rate from public.shop_public_settings where id=1)   as "기본적립률",
   (select count(*) from public.point_wallets)                       as "적립금지갑수";
+
+notify pgrst, 'reload schema';

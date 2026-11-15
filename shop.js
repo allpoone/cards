@@ -190,6 +190,18 @@
       ";--accent:" + (p.accent || "#fff") + ";";
   }
 
+  /* 선택한 번호를 "(#7, #19, #24)" 형태로 */
+  function seatTagOf(it) {
+    var v = it && (it.seat_numbers || it.seats);
+    if (!Array.isArray(v) || !v.length) return "";
+    return "(" + v.map(function (n) { return "#" + Number(n); }).join(", ") + ")";
+  }
+
+  function itemNameHtml(it) {
+    var tag = seatTagOf(it);
+    return esc(it.product_name) + (tag ? ' <em class="seat-nums">' + esc(tag) + "</em>" : "");
+  }
+
   function renderCart() {
     var s = store();
     if (!s) return;
@@ -237,21 +249,26 @@
 
     body.innerHTML = lines.map(function (l) {
       var p = l.product;
+      var tag = seatTagOf(l);
+      var seatMode = !!(l.seats && l.seats.length);
       return (
         '<article class="cart-line" data-id="' + esc(p.id) + '">' +
         '<div class="cart-line__art" style="' + artStyle(p) + '" aria-hidden="true">' +
         '<span class="cart-line__glyph">' + esc(p.glyph || "📦") + "</span>" +
         "</div>" +
         '<div class="cart-line__info">' +
-        '<h3 class="cart-line__name">' + esc(p.name) + "</h3>" +
+        '<h3 class="cart-line__name">' + esc(p.name) +
+        (tag ? ' <em class="seat-nums">' + esc(tag) + "</em>" : "") + "</h3>" +
         '<p class="cart-line__meta">' + esc(SITE_CONFIG.shopName) + " · " + esc(s.unitOf(p)) + "당 " + won(l.unitPrice) + "</p>" +
         '<div class="cart-line__row">' +
-        '<div class="qty qty--sm" role="group" aria-label="' + esc(p.name) + ' 수량">' +
-        '<button class="qty__btn" type="button" data-cart-step="-1" data-id="' + esc(p.id) + '" aria-label="수량 줄이기">−</button>' +
-        '<input class="qty__input" type="number" inputmode="numeric" min="1" max="' + p.stock +
-        '" value="' + l.qty + '" data-cart-qty="' + esc(p.id) + '" aria-label="수량" />' +
-        '<button class="qty__btn" type="button" data-cart-step="1" data-id="' + esc(p.id) + '" aria-label="수량 늘리기">+</button>' +
-        "</div>" +
+        (seatMode
+          ? '<span class="cart-line__seatsum">' + l.qty + esc(s.unitOf(p)) + " 선택</span>"
+          : '<div class="qty qty--sm" role="group" aria-label="' + esc(p.name) + ' 수량">' +
+            '<button class="qty__btn" type="button" data-cart-step="-1" data-id="' + esc(p.id) + '" aria-label="수량 줄이기">−</button>' +
+            '<input class="qty__input" type="number" inputmode="numeric" min="1" max="' + p.stock +
+            '" value="' + l.qty + '" data-cart-qty="' + esc(p.id) + '" aria-label="수량" />' +
+            '<button class="qty__btn" type="button" data-cart-step="1" data-id="' + esc(p.id) + '" aria-label="수량 늘리기">+</button>' +
+            "</div>") +
         '<strong class="cart-line__sum">' + won(l.lineTotal) + "</strong>" +
         "</div>" +
         '<p class="cart-line__stock">남은 수량 ' + p.stock + esc(s.unitOf(p)) + "</p>" +
@@ -318,6 +335,7 @@
       '<ul class="co-summary__list">' +
       lines.map(function (l) {
         return '<li><span class="co-summary__name">' + esc(l.product.name) +
+          (seatTagOf(l) ? ' <em class="seat-nums">' + esc(seatTagOf(l)) + "</em>" : "") +
           ' <em>×' + l.qty + "</em></span><b>" + won(l.lineTotal) + "</b></li>";
       }).join("") +
       "</ul>" +
@@ -851,7 +869,7 @@
 
       '<ul class="done__items">' +
       (order.items || []).map(function (it) {
-        return "<li><span>" + esc(it.product_name) + ' <em>×' + it.qty + "</em></span><b>" + won(it.line_total) + "</b></li>";
+        return "<li><span>" + itemNameHtml(it) + ' <em>×' + it.qty + "</em></span><b>" + won(it.line_total) + "</b></li>";
       }).join("") +
       "</ul>" +
 
@@ -981,7 +999,7 @@
       timeline +
       '<ul class="order-card__items">' +
       (o.items || []).map(function (it) {
-        return "<li><span>" + esc(it.product_name) + ' <em>×' + it.qty + "</em></span><b>" + won(it.line_total) + "</b></li>";
+        return "<li><span>" + itemNameHtml(it) + ' <em>×' + it.qty + "</em></span><b>" + won(it.line_total) + "</b></li>";
       }).join("") +
       "</ul>" +
       '<div class="order-card__total"><span>총 입금액</span><strong>' + won(o.total_amount) + "</strong></div>" +

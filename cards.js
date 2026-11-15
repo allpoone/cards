@@ -87,7 +87,7 @@ const SITE_CONFIG = {
       icon: "🎰",
       title: "오리파 참여",
       body:
-        "1구 단위로 참여하는 랜덤 상품입니다. 총 구수와 남은 구수, 메인 어타리·라스트원상 라인업을 미리 공개하며, 잔여 구수가 0이 되면 자동으로 마감됩니다.",
+        "1구 단위로 참여하는 랜덤 상품입니다. 총 구수와 남은 구수, 다이아·골드·실버·브론즈·라스트원상 라인업을 미리 공개하며, 번호(1~N번)를 직접 골라 참여할 수 있습니다. 잔여 구수가 0이 되면 자동으로 마감됩니다.",
     },
     {
       icon: "📺",
@@ -135,7 +135,7 @@ const SITE_CONFIG = {
    오리파(oripa) 추가 필드
      totalUnits     : 총 구수
      remainingUnits : 남은 구수
-     prizes         : [{ label: "메인 어타리", name: "..." }, ...]
+     prizes         : [{ tier: "dia"|"gold"|"silver"|"bronze"|"last", label: "다이아", name: "...", qty: 1 }, ...]
      lineupNote     : 라인업 안내 문구 (선택)
    선택 필드
      image     : 실제 상품 사진 URL (넣으면 그라데이션 대신 사진 표시)
@@ -251,11 +251,13 @@ const PRODUCTS = [
     remainingUnits: 18,
     status: "low",
     prizes: [
-      { label: "메인 어타리", name: "리자몽 ex SAR PSA 10" },
-      { label: "어타리", name: "뮤 ex SAR (한판)" },
-      { label: "라스트원상", name: "이브이 SAR 3종 세트 + 151 박스" },
+      { tier: "dia", label: "다이아", name: "리자몽 ex SAR PSA 10", qty: 1 },
+      { tier: "gold", label: "골드", name: "뮤 ex SAR (한판)", qty: 3 },
+      { tier: "silver", label: "실버", name: "인기 SAR · SR", qty: 6 },
+      { tier: "bronze", label: "브론즈", name: "랜덤 SR · AR 1장", qty: 12 },
+      { tier: "last", label: "라스트원상", name: "이브이 SAR 3종 세트 + 151 박스", qty: 1 },
     ],
-    lineupNote: "메인 1개 · 어타리 5개 · 라스트원상 1개 구성, 남은 구수 18구입니다.",
+    lineupNote: "다이아 1개 · 골드 3개 · 실버 6개 · 브론즈 12개 · 라스트원상 1개 구성, 남은 구수 18구입니다.",
     c1: "#5b1035",
     c2: "#f472b6",
     accent: "#fbcfe8",
@@ -278,11 +280,13 @@ const PRODUCTS = [
     remainingUnits: 7,
     status: "low",
     prizes: [
-      { label: "메인 어타리", name: "루피 리더 패러렐 PSA 10" },
-      { label: "어타리", name: "샹크스 SR (일판)" },
-      { label: "라스트원상", name: "OP-05 박스 1박스" },
+      { tier: "dia", label: "다이아", name: "루피 리더 패러렐 PSA 10", qty: 1 },
+      { tier: "gold", label: "골드", name: "샹크스 SR (일판)", qty: 3 },
+      { tier: "silver", label: "실버", name: "에이스 SR / 인기 패러렐", qty: 6 },
+      { tier: "bronze", label: "브론즈", name: "랜덤 SR · AR 1장", qty: 12 },
+      { tier: "last", label: "라스트원상", name: "OP-05 박스 1박스", qty: 1 },
     ],
-    lineupNote: "메인 1개 · 어타리 3개 · 라스트원상 1개 구성, 남은 구수 7구입니다.",
+    lineupNote: "다이아 1개 · 골드 3개 · 실버 6개 · 브론즈 12개 · 라스트원상 1개 구성, 남은 구수 7구입니다.",
     c1: "#3b1573",
     c2: "#a855f7",
     accent: "#e9d5ff",
@@ -305,8 +309,11 @@ const PRODUCTS = [
     remainingUnits: 0,
     status: "soldout",
     prizes: [
-      { label: "메인 어타리", name: "리자몽 ex SAR PSA 10" },
-      { label: "라스트원상", name: "151 부스터 박스 1박스" },
+      { tier: "dia", label: "다이아", name: "리자몽 ex SAR PSA 10", qty: 1 },
+      { tier: "gold", label: "골드", name: "뮤츠 ex SAR", qty: 2 },
+      { tier: "silver", label: "실버", name: "인기 AR · ex", qty: 5 },
+      { tier: "bronze", label: "브론즈", name: "랜덤 SR 1장", qty: 10 },
+      { tier: "last", label: "라스트원상", name: "151 부스터 박스 1박스", qty: 1 },
     ],
     lineupNote: "전 구수 완판된 회차입니다. 다음 회차는 라이브 공지로 안내됩니다.",
     c1: "#0f3b45",
