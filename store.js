@@ -173,11 +173,18 @@
   }
 
   /* DB에만 있는 상품의 기본 카드 아트 (종목·유형으로 색을 정합니다) */
+  function glyphFor(type) {
+    if (type === "oripa") return "🎰";
+    if (type === "etc") return "🎁";
+    return "📦";
+  }
+
   function defaultArt(type, game) {
+    var glyph = glyphFor(type);
     if (game === "onepiece") {
-      return { c1: "#2a0b10", c2: "#b3232f", accent: "#ffb3ba", glyph: type === "oripa" ? "🏴‍☠️" : type === "single" ? "🃏" : "📦" };
+      return { c1: "#2a0b10", c2: "#b3232f", accent: "#ffb3ba", glyph: glyph };
     }
-    return { c1: "#150d33", c2: "#7c3aed", accent: "#d5c8ff", glyph: type === "oripa" ? "🎰" : type === "single" ? "🃏" : "📦" };
+    return { c1: "#150d33", c2: "#7c3aed", accent: "#d5c8ff", glyph: glyph };
   }
 
   /* 상품 한 건의 원본(카드 디자인 + DB 최신값) */
@@ -194,6 +201,9 @@
       if (row.name) out.name = row.name;
       if (row.type) out.type = row.type;
       if (row.game) out.game = row.game;
+      /* DB 판본(edition)이 있으면 카드 값보다 우선 — 필터도 이 값을 씁니다 */
+      if (row.edition) { out.edition = row.edition; out.language = row.edition; }
+      else if (!out.edition) out.edition = out.language || "";
       if (typeof row.price === "number") out.price = row.price;
       out.dbStock = row.stock;
       out.dbStatus = row.status;
@@ -207,6 +217,7 @@
     if (!out.name) out.name = "(이름 없음)";
     if (typeof out.price !== "number") out.price = Number(out.price) || 0;
 
+    if (!out.edition) out.edition = out.language || "";
     if (!base) {
       var art = defaultArt(out.type, out.game);
       for (var k in art) if (!out[k]) out[k] = art[k];
@@ -289,7 +300,7 @@
   function unitOf(p) {
     if (!p) return "개";
     if (p.type === "oripa") return "구";
-    if (p.type === "single") return "팩";
+    if (p.type === "etc" || p.type === "single") return "개";
     return p.shrink === "CARTON" ? "카톤" : "박스";
   }
 
@@ -622,7 +633,7 @@
   }
 
   var PRODUCT_FIELDS = {
-    full: "id, name, type, game, price, stock, status, subtitle, image_url, sort_order",
+    full: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order",
     v1:   "id, name, type, game, price, stock, status",
     min:  "id, name, price, stock, status",
   };
@@ -633,6 +644,7 @@
       name: r.name || "",
       type: r.type || "box",
       game: r.game || "pokemon",
+      edition: r.edition || "",
       price: Number(r.price) || 0,
       stock: Math.max(0, Math.floor(Number(r.stock) || 0)),
       status: r.status || "available",
@@ -951,6 +963,9 @@
         name: name,
         type: data.type || prev.type || (base && base.type) || "box",
         game: data.game || prev.game || (base && base.game) || "pokemon",
+        edition: data.edition === undefined
+          ? (prev.edition || (base && base.language) || "")
+          : String(data.edition || "").trim(),
         price: price,
         stock: stock,
         status: status,
@@ -1023,6 +1038,9 @@
       p_name: String(data.name || "").trim(),
       p_type: data.type || (prev && prev.type) || "box",
       p_game: data.game || (prev && prev.game) || "pokemon",
+      p_edition: data.edition === undefined
+        ? ((prev && prev.edition) || null)
+        : (String(data.edition || "").trim() || null),
       p_price: clampInt(data.price, 0, 100000000),
       p_stock: clampInt(data.stock, 0, 99999),
       p_subtitle: data.subtitle == null ? (prev ? prev.subtitle : null) : String(data.subtitle).trim(),
@@ -1041,6 +1059,7 @@
     /* 이름·가격·재고만 바뀌었으면 좁은 RPC(admin_update_product)를 씁니다. */
     var onlyBasic = prev &&
       payload.p_type === prev.type && payload.p_game === prev.game &&
+      (payload.p_edition || "") === (prev.edition || "") &&
       payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url;
 
     if (onlyBasic) {

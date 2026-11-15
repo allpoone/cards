@@ -16,7 +16,17 @@
     cancelled: { label: "취소됨", cls: "cancelled" },
   };
 
-  var TYPE = { box: "미개봉 박스", oripa: "오리파", single: "싱글·기타" };
+  var TYPE = { box: "미개봉 박스", oripa: "오리파", etc: "기타" };
+  TYPE.single = "기타";   // 예전 분류 호환
+  var GAME = { pokemon: "포켓몬", onepiece: "원피스", other: "기타" };
+  var EDITION = { "": "해당없음", KR: "한판(KR)", JP: "일판(JP)", EN: "영판(EN)" };
+
+  function options(defs, selected) {
+    return Object.keys(defs).map(function (k) {
+      return '<option value="' + k + '"' + (String(selected || "") === k ? " selected" : "") + ">" +
+        esc(defs[k]) + "</option>";
+    }).join("");
+  }
 
   var orders = [];
   var filter = "all";
@@ -387,10 +397,11 @@
     var s = window.APOStore;
     return [
       TYPE[p.type] || p.type,
-      p.game === "onepiece" ? "원피스" : "포켓몬",
+      GAME[p.game] || p.game,
+      p.edition ? (EDITION[p.edition] || p.edition) : null,
       won(p.price) + " / " + (s ? s.unitOf(p) : "개"),
       "재고 " + p.stock,
-    ].join(" · ");
+    ].filter(Boolean).join(" · ");
   }
 
   function productRow(p) {
@@ -410,25 +421,31 @@
 
       '<div class="prow__edit" hidden>' +
       '<div class="prow__grid">' +
-      '<label class="pf"><span>상품명</span>' +
+      '<label class="pf pf--wide"><span>상품명</span>' +
       '<input type="text" data-field="name" maxlength="60" value="' + esc(p.name) + '" /></label>' +
+      '<label class="pf"><span>종목</span>' +
+      '<select data-field="game">' + options(GAME, p.game) + "</select></label>" +
+      '<label class="pf"><span>유형</span>' +
+      '<select data-field="type">' + options(TYPE, p.type) + "</select></label>" +
+      '<label class="pf"><span>판본</span>' +
+      '<select data-field="edition">' + options(EDITION, p.edition || "") + "</select></label>" +
       '<label class="pf"><span>가격(원)</span>' +
       '<input type="number" inputmode="numeric" min="0" data-field="price" value="' + p.price + '" /></label>' +
       '<label class="pf"><span>재고</span>' +
       '<input type="number" inputmode="numeric" min="0" max="99999" data-field="stock" value="' + p.stock + '" /></label>' +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
-      '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || p.series || "") + '" placeholder="예: SV8a / 일판 / 슈링크 O" /></label>' +
+      '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || "") + '" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
 
       '<div class="pf pf--wide">' +
-      '<span>사진</span>' +
+      "<span>사진</span>" +
       '<div class="pf__photo">' +
       '<input type="file" accept="image/*" id="' + esc(fid) + '" data-photo-input="' + esc(p.id) + '" hidden />' +
       '<label class="btn btn--ghost btn--xs" for="' + esc(fid) + '">사진 선택</label>' +
       '<input type="text" data-field="image_url" value="' + esc(p.imageUrl || "") + '" placeholder="사진 주소 (사진을 고르면 자동 입력)" />' +
       '<span class="pf__busy" hidden>올리는 중…</span>' +
       "</div>" +
-      '<span class="pf__preview" data-preview' + (p.image ? "" : " hidden") + '>' +
+      '<span class="pf__preview" data-preview' + (p.image ? "" : " hidden") + ">" +
       (p.image ? '<img src="' + esc(p.image) + '" alt="" />' : "") +
       "</span>" +
       "</div>" +
@@ -461,21 +478,23 @@
       '<div class="np">' +
       '<div class="np__head">' +
       "<b>새 상품 추가</b>" +
-      '<p>저장하면 손님 사이트 상품 목록에 바로 나타납니다.</p>' +
+      "<p>저장하면 손님 사이트 상품 목록에 바로 나타납니다.</p>" +
       "</div>" +
       '<div class="np__grid">' +
       '<label class="pf pf--wide"><span>상품명 <em>*</em></span>' +
       '<input type="text" id="npName" maxlength="60" placeholder="예: 테라스탈 페스티벌 ex 박스" /></label>' +
-      '<label class="pf"><span>분류</span>' +
-      '<select id="npType"><option value="box">미개봉 박스</option><option value="oripa">오리파</option><option value="single">싱글·기타</option></select></label>' +
       '<label class="pf"><span>종목</span>' +
-      '<select id="npGame"><option value="pokemon">포켓몬</option><option value="onepiece">원피스</option></select></label>' +
+      '<select id="npGame">' + options(GAME, "pokemon") + "</select></label>" +
+      '<label class="pf"><span>유형</span>' +
+      '<select id="npType">' + options(TYPE, "box") + "</select></label>" +
+      '<label class="pf"><span>판본</span>' +
+      '<select id="npEdition">' + options(EDITION, "") + "</select></label>" +
       '<label class="pf"><span>가격(원) <em>*</em></span>' +
       '<input type="number" id="npPrice" inputmode="numeric" min="0" placeholder="320000" /></label>' +
       '<label class="pf"><span>재고 <em>*</em></span>' +
       '<input type="number" id="npStock" inputmode="numeric" min="0" max="99999" value="1" /></label>' +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
-      '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 일판 / 슈링크 O" /></label>' +
+      '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
       '<div class="pf pf--wide">' +
       "<span>사진 <em>(선택)</em></span>" +
@@ -523,6 +542,7 @@
       name: ($("npName").value || "").trim(),
       type: $("npType").value,
       game: $("npGame").value,
+      edition: $("npEdition").value || null,
       price: Number($("npPrice").value) || 0,
       stock: Number($("npStock").value) || 0,
       subtitle: ($("npSubtitle").value || "").trim(),
@@ -573,6 +593,9 @@
     }
     return {
       name: String(v("name") || "").trim(),
+      type: String(v("type") || ""),
+      game: String(v("game") || ""),
+      edition: String(v("edition") || ""),
       price: Number(v("price")) || 0,
       stock: Number(v("stock")) || 0,
       subtitle: String(v("subtitle") || "").trim(),
@@ -596,6 +619,9 @@
     s.saveProduct({
       id: id,
       name: values.name,
+      type: values.type || undefined,
+      game: values.game || undefined,
+      edition: values.edition || null,
       price: values.price,
       stock: values.stock,
       subtitle: values.subtitle,

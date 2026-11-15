@@ -114,7 +114,7 @@ const SITE_CONFIG = {
    ------------------------------------------------------------
    공통 필드
      id        : 고유 문자열 (중복 금지)
-     type      : "box"(미개봉 박스) | "oripa"(오리파) | "single"(싱글·기타)
+     type      : "box"(미개봉 박스) | "oripa"(오리파) | "etc"(기타)
      game      : "pokemon" | "onepiece"
      name      : 상품 이름
      nameEn    : 영문 이름 (선택, 검색용)
@@ -320,7 +320,7 @@ const PRODUCTS = [
   /* ── 싱글 · 기타 ─────────────────────────────────────────── */
   {
     id: "single-terastal-pack-jp",
-    type: "single",
+    type: "etc",
     game: "pokemon",
     name: "테라스탈 페스티벌 ex 낱팩",
     nameEn: "Terastal Festival ex Single Pack",

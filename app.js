@@ -8,7 +8,7 @@
   "use strict";
 
   /* ── 상태 ─────────────────────────────────────────────── */
-  var state = { game: "all", type: "all", lang: "all", status: "all", q: "" };
+  var state = { game: "all", type: "all", edition: "all", q: "" };
 
   var STATUS = {
     available: { label: "판매중", order: 0 },
@@ -19,37 +19,34 @@
   var TYPE = {
     box: { label: "미개봉 박스", short: "박스" },
     oripa: { label: "오리파", short: "오리파" },
-    single: { label: "싱글·기타", short: "낱개" },
+    etc: { label: "기타", short: "기타" },
+    single: { label: "기타", short: "기타" },   // 예전 분류 호환
   };
 
   var LANG = { JP: "일판", KR: "한판", EN: "영판" };
-  var GAME_LABEL = { pokemon: "POKÉMON", onepiece: "ONE PIECE" };
+  var GAME_LABEL = { pokemon: "POKÉMON", onepiece: "ONE PIECE", other: "기타" };
 
   var SHRINK = { O: "슈링크 O", X: "슈링크 X", CARTON: "카톤" };
 
+  /* 판본(edition) 줄은 [미개봉 박스]를 골랐을 때만 보입니다. */
   var filterDefs = {
     game: [
       { key: "all", label: "전체" },
       { key: "pokemon", label: "포켓몬" },
       { key: "onepiece", label: "원피스" },
+      { key: "other", label: "기타" },
     ],
     type: [
       { key: "all", label: "전체" },
       { key: "box", label: "미개봉 박스" },
       { key: "oripa", label: "오리파" },
-      { key: "single", label: "싱글·기타" },
+      { key: "etc", label: "기타" },
     ],
-    lang: [
+    edition: [
       { key: "all", label: "전체" },
-      { key: "JP", label: "일판(JP)" },
       { key: "KR", label: "한판(KR)" },
+      { key: "JP", label: "일판(JP)" },
       { key: "EN", label: "영판(EN)" },
-    ],
-    status: [
-      { key: "all", label: "전체" },
-      { key: "available", label: "판매중" },
-      { key: "low", label: "마감임박" },
-      { key: "soldout", label: "완판" },
     ],
   };
 
@@ -76,8 +73,14 @@
     return TYPE[p.type] || TYPE.box;
   }
 
+  /* 판본: DB edition 우선, 없으면 cards.js language */
+  function editionOf(p) {
+    return p.edition || p.language || "";
+  }
+
   function langOf(p) {
-    return LANG[p.language] || "-";
+    var e = editionOf(p);
+    return e ? (LANG[e] || e) : "";
   }
 
   /* 실시간 재고가 반영된 상품 목록 (store.js 가 없으면 cards.js 값 그대로) */
@@ -88,7 +91,7 @@
   /* 수량/가격 단위 */
   function unitWord(p) {
     if (p.type === "oripa") return "구";
-    if (p.type === "single") return "팩";
+    if (p.type === "etc" || p.type === "single") return "개";
     return p.shrink === "CARTON" ? "카톤" : "박스";
   }
 
@@ -157,7 +160,7 @@
     var setLine = p.series || "";
     if (p.setCode) setLine += " (" + p.setCode + ")";
     if (setLine) lines.push("시리즈: " + setLine);
-    lines.push("판본: " + langOf(p));
+    if (langOf(p)) lines.push("판본: " + langOf(p));
     if (isOripa) {
       lines.push("가격: " + won(p.price) + " / 1구");
       lines.push("구성: " + stockText(p));
@@ -219,7 +222,8 @@
   function countFor(kind, key) {
     return productList().filter(function (p) {
       if (key === "all") return true;
-      return p[kind === "lang" ? "language" : kind] === key;
+      if (kind === "edition") return editionOf(p) === key;
+      return p[kind] === key;
     }).length;
   }
 
@@ -248,8 +252,7 @@
   function matches(p) {
     if (state.game !== "all" && p.game !== state.game) return false;
     if (state.type !== "all" && p.type !== state.type) return false;
-    if (state.lang !== "all" && p.language !== state.lang) return false;
-    if (state.status !== "all" && p.status !== state.status) return false;
+    if (state.type === "box" && state.edition !== "all" && editionOf(p) !== state.edition) return false;
     if (state.q) {
       var prizeNames = (p.prizes || []).map(function (x) { return x.name + " " + x.label; }).join(" ");
       var pool = normalize(
@@ -312,7 +315,18 @@
     );
   }
 
+  /* 판본 줄은 [미개봉 박스]를 골랐을 때만 보입니다. */
+  function syncFilterRows() {
+    var rows = document.querySelectorAll("[data-filter-row]");
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute("data-filter-row") === "edition") {
+        rows[i].hidden = state.type !== "box";
+      }
+    }
+  }
+
   function render() {
+    syncFilterRows();
     var list = productList().filter(matches);
     list.sort(function (a, b) {
       return (STATUS[a.status] || STATUS.available).order - (STATUS[b.status] || STATUS.available).order;
@@ -354,7 +368,7 @@
     rows.push(["종목", p.game === "onepiece" ? "원피스 카드 게임" : "포켓몬 카드"]);
     rows.push(["구분", typeOf(p).label]);
     rows.push(["시리즈", (p.series || "-") + (p.setCode ? " (" + p.setCode + ")" : "")]);
-    rows.push(["판본", langOf(p)]);
+    if (editionOf(p)) rows.push(["판본", langOf(p)]);
 
     if (isOripa) {
       rows.push(["1구 가격", won(p.price)]);
@@ -481,13 +495,15 @@
 
   /* ── 이벤트 연결 ──────────────────────────────────────── */
   function wire() {
-    ["game", "type", "lang", "status"].forEach(function (kind) {
+    ["game", "type", "edition"].forEach(function (kind) {
       var host = document.querySelector('[data-filter="' + kind + '"]');
       if (!host) return;
       host.addEventListener("click", function (e) {
         var chip = e.target.closest(".chip");
         if (!chip) return;
         state[kind] = chip.getAttribute("data-key");
+        /* 박스가 아니면 판본 필터는 의미가 없습니다 → 전체로 초기화 */
+        if (kind === "type" && state.type !== "box") state.edition = "all";
         buildChips();
         render();
       });
@@ -525,7 +541,7 @@
     });
 
     function reset() {
-      state = { game: "all", type: "all", lang: "all", status: "all", q: "" };
+      state = { game: "all", type: "all", edition: "all", q: "" };
       searchInput.value = "";
       buildChips();
       render();

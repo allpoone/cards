@@ -111,14 +111,15 @@ grant execute on function private.is_admin() to authenticated;
 create table if not exists public.products (
   id          text primary key,
   name        text not null,
-  type        text not null check (type in ('box', 'oripa', 'single')),
-  game        text not null check (game in ('pokemon', 'onepiece')),
+  type        text not null check (type in ('box', 'oripa', 'etc')),
+  game        text not null check (game in ('pokemon', 'onepiece', 'other')),
   price       integer not null check (price >= 0),
   stock       integer not null default 0 check (stock >= 0),
   status      text not null default 'available'
               check (status in ('available', 'low', 'soldout', 'sold')),
   subtitle    text,
   image_url   text,
+  edition     text check (edition in ('KR', 'JP', 'EN')),
   sort_order  integer not null default 0,
   updated_at  timestamptz not null default now()
 );
@@ -126,6 +127,21 @@ create table if not exists public.products (
 -- 1차 스키마로 이미 만든 products 테이블에도 새 열을 붙입니다.
 alter table public.products add column if not exists subtitle  text;
 alter table public.products add column if not exists image_url text;
+alter table public.products add column if not exists edition   text;
+
+-- 분류·종목 값 확장 (기존 제약이 있으면 지우고 다시 만듭니다)
+alter table public.products drop constraint if exists products_type_check;
+alter table public.products
+  add constraint products_type_check check (type in ('box', 'oripa', 'etc'));
+alter table public.products drop constraint if exists products_game_check;
+alter table public.products
+  add constraint products_game_check check (game in ('pokemon', 'onepiece', 'other'));
+alter table public.products drop constraint if exists products_edition_check;
+alter table public.products
+  add constraint products_edition_check check (edition is null or edition in ('KR', 'JP', 'EN'));
+
+-- 예전 'single' 분류는 'etc'(기타)로 옮깁니다. (카드/박람회 상품)
+update public.products set type = 'etc' where type = 'single';
 
 create index if not exists products_status_idx on public.products (status);
 
@@ -871,7 +887,7 @@ begin
   /* 분류·종목·설명·사진은 그대로 두고 이름·가격·재고만 바꿉니다. */
   return public.admin_upsert_product(
     p_product_id, p_name, v_row.type, v_row.game, p_price, p_stock,
-    v_row.subtitle, v_row.image_url, p_pin
+    v_row.edition, v_row.subtitle, v_row.image_url, p_pin
   );
 end;
 $$;
@@ -881,6 +897,8 @@ comment on function public.admin_update_product(text, text, integer, integer, te
 
 -- ── 새 상품 추가 / 상품 정보 전체 수정 (upsert) ────────────
 -- p_id 가 없으면 서버가 새 id 를 만듭니다. (db-xxxxxxxxxx)
+drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text);
+
 create or replace function public.admin_upsert_product(
   p_id        text,
   p_name      text,
@@ -888,6 +906,7 @@ create or replace function public.admin_upsert_product(
   p_game      text,
   p_price     integer,
   p_stock     integer,
+  p_edition   text default null,
   p_subtitle  text default null,
   p_image_url text default null,
   p_pin       text default null
@@ -899,21 +918,28 @@ set search_path = public, pg_temp
 as $$
 declare
   v_id   text := nullif(btrim(coalesce(p_id, '')), '');
-  v_row  public.products;
-  v_sort integer;
-  v_new  boolean := false;
+  v_row     public.products;
+  v_sort    integer;
+  v_new     boolean := false;
+  v_edition text;
 begin
   perform private.assert_admin(p_pin);
 
   if p_name is null or btrim(p_name) = '' then
     raise exception '상품명을 입력해 주세요.' using errcode = '22023';
   end if;
-  if p_type is null or p_type not in ('box', 'oripa', 'single') then
-    raise exception '상품 분류는 box / oripa / single 중 하나여야 합니다.' using errcode = '22023';
+  if p_type is null or p_type not in ('box', 'oripa', 'etc') then
+    raise exception '상품 유형은 box / oripa / etc 중 하나여야 합니다.' using errcode = '22023';
   end if;
-  if p_game is null or p_game not in ('pokemon', 'onepiece') then
-    raise exception '종목은 pokemon / onepiece 중 하나여야 합니다.' using errcode = '22023';
+  if p_game is null or p_game not in ('pokemon', 'onepiece', 'other') then
+    raise exception '종목은 pokemon / onepiece / other 중 하나여야 합니다.' using errcode = '22023';
   end if;
+  if p_edition is not null and btrim(p_edition) <> ''
+     and btrim(p_edition) not in ('KR', 'JP', 'EN') then
+    raise exception '판본은 KR / JP / EN 중 하나이거나 비워 두어야 합니다.' using errcode = '22023';
+  end if;
+
+  v_edition := nullif(upper(btrim(coalesce(p_edition, ''))), '');
   if p_price is null or p_price < 0 then
     raise exception '가격은 0원 이상이어야 합니다.' using errcode = '22023';
   end if;
@@ -945,9 +971,9 @@ begin
     select coalesce(max(sort_order), 0) + 10 into v_sort from public.products;
 
     insert into public.products (
-      id, name, type, game, price, stock, status, sort_order, subtitle, image_url, updated_at
+      id, name, type, game, edition, price, stock, status, sort_order, subtitle, image_url, updated_at
     ) values (
-      v_id, btrim(p_name), p_type, p_game, p_price, p_stock,
+      v_id, btrim(p_name), p_type, p_game, v_edition, p_price, p_stock,
       case when p_stock <= 0 then 'sold' else 'available' end,
       v_sort,
       nullif(btrim(coalesce(p_subtitle, '')), ''),
@@ -962,6 +988,7 @@ begin
        set name      = btrim(p_name),
            type      = p_type,
            game      = p_game,
+           edition   = v_edition,
            price     = p_price,
            stock     = p_stock,
            status    = case
@@ -984,6 +1011,7 @@ begin
     'price',    v_row.price,
     'stock',    v_row.stock,
     'status',   v_row.status,
+    'edition',  v_row.edition,
     'subtitle', v_row.subtitle,
     'image_url', v_row.image_url,
     'created',  v_new
@@ -991,7 +1019,7 @@ begin
 end;
 $$;
 
-comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text) is
+comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text) is
   '관리자용 상품 추가/수정. id 없으면 새로 만들고, 있으면 이름·분류·종목·가격·재고·설명·사진을 통째로 저장.';
 
 -- ── 상품 삭제 (주문 이력이 있으면 거절) ──────────────
@@ -1286,7 +1314,7 @@ grant execute on function public.update_order_status(text, text, text) to anon, 
 grant execute on function public.admin_list_orders(text, text)      to anon, authenticated;
 grant execute on function public.admin_set_stock(text, text, integer) to anon, authenticated;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
-grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text) to anon, authenticated;
+grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text) to anon, authenticated;
 grant execute on function public.admin_delete_product(text, text)   to anon, authenticated;
 grant execute on function public.admin_set_require_login(boolean, text) to anon, authenticated;
 grant execute on function public.auto_confirm_deposit(text, text)    to anon, authenticated;
@@ -1339,7 +1367,7 @@ values
   ('oripa-eevee-heroes-kr',    '이브이 히어로즈 오리파',           'oripa',  'pokemon',   9900, 18, 'low',       50),
   ('oripa-op05-jp',            'OP-05 오리파',                     'oripa',  'onepiece', 19900, 7,  'low',       60),
   ('oripa-pokemon-151-kr',     '포켓몬 151 오리파',                'oripa',  'pokemon',   6900, 0,  'soldout',   70),
-  ('single-terastal-pack-jp',  '테라스탈 페스티벌 ex 낱팩',        'single', 'pokemon',   4500, 24, 'available', 80)
+  ('single-terastal-pack-jp',  '테라스탈 페스티벌 ex 낱팩',        'etc',    'pokemon',   4500, 24, 'available', 80)
 on conflict (id) do nothing;
 
 -- ============================================================

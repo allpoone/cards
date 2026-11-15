@@ -11,9 +11,23 @@
 --  · 손님 직접 주문 취소, 10분 미입금 자동 취소 + 재고 복구
 -- ============================================================
 
--- 1) 상품 열 추가
+-- 1) 상품 열 추가 + 분류/종목/판본 값 확장
 alter table public.products add column if not exists subtitle  text;
 alter table public.products add column if not exists image_url text;
+alter table public.products add column if not exists edition   text;
+
+alter table public.products drop constraint if exists products_type_check;
+alter table public.products
+  add constraint products_type_check check (type in ('box', 'oripa', 'etc'));
+alter table public.products drop constraint if exists products_game_check;
+alter table public.products
+  add constraint products_game_check check (game in ('pokemon', 'onepiece', 'other'));
+alter table public.products drop constraint if exists products_edition_check;
+alter table public.products
+  add constraint products_edition_check check (edition is null or edition in ('KR', 'JP', 'EN'));
+
+-- 예전 'single'(싱글·기타) 분류는 'etc'(기타)로 옮깁니다.
+update public.products set type = 'etc' where type = 'single';
 
 -- 2) 공개 설정 (비로그인 주문 허용 여부)
 create table if not exists public.shop_public_settings (
@@ -297,27 +311,36 @@ begin
 end $$;
 
 -- 10) 관리자: 상품 추가/수정 (id 가 없으면 새 상품)
+drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text);
+
 create or replace function public.admin_upsert_product(
   p_id text, p_name text, p_type text, p_game text, p_price integer, p_stock integer,
-  p_subtitle text default null, p_image_url text default null, p_pin text default null
+  p_edition text default null, p_subtitle text default null, p_image_url text default null,
+  p_pin text default null
 )
 returns jsonb language plpgsql security definer
 set search_path = public, pg_temp as $$
 declare
   v_id text := nullif(btrim(coalesce(p_id,'')),'');
-  v_row public.products; v_sort integer; v_new boolean := false;
+  v_row public.products; v_sort integer; v_new boolean := false; v_edition text;
 begin
   perform private.assert_admin(p_pin);
 
   if p_name is null or btrim(p_name) = '' then
     raise exception '상품명을 입력해 주세요.' using errcode = '22023';
   end if;
-  if p_type is null or p_type not in ('box','oripa','single') then
-    raise exception '상품 분류는 box / oripa / single 중 하나여야 합니다.' using errcode = '22023';
+  if p_type is null or p_type not in ('box','oripa','etc') then
+    raise exception '상품 유형은 box / oripa / etc 중 하나여야 합니다.' using errcode = '22023';
   end if;
-  if p_game is null or p_game not in ('pokemon','onepiece') then
-    raise exception '종목은 pokemon / onepiece 중 하나여야 합니다.' using errcode = '22023';
+  if p_game is null or p_game not in ('pokemon','onepiece','other') then
+    raise exception '종목은 pokemon / onepiece / other 중 하나여야 합니다.' using errcode = '22023';
   end if;
+  if p_edition is not null and btrim(p_edition) <> ''
+     and btrim(p_edition) not in ('KR','JP','EN') then
+    raise exception '판본은 KR / JP / EN 중 하나이거나 비워 두어야 합니다.' using errcode = '22023';
+  end if;
+  v_edition := nullif(upper(btrim(coalesce(p_edition,''))), '');
+
   if p_price is null or p_price < 0 or p_price > 100000000 then
     raise exception '가격은 0원 이상 1억 원 이하로 입력해 주세요.' using errcode = '22023';
   end if;
@@ -338,9 +361,9 @@ begin
   if not found then
     select coalesce(max(sort_order), 0) + 10 into v_sort from public.products;
     insert into public.products (
-      id, name, type, game, price, stock, status, sort_order, subtitle, image_url, updated_at
+      id, name, type, game, edition, price, stock, status, sort_order, subtitle, image_url, updated_at
     ) values (
-      v_id, btrim(p_name), p_type, p_game, p_price, p_stock,
+      v_id, btrim(p_name), p_type, p_game, v_edition, p_price, p_stock,
       case when p_stock <= 0 then 'sold' else 'available' end, v_sort,
       nullif(btrim(coalesce(p_subtitle,'')),''),
       nullif(btrim(coalesce(p_image_url,'')),''), now()
@@ -348,7 +371,7 @@ begin
     v_new := true;
   else
     update public.products
-       set name = btrim(p_name), type = p_type, game = p_game,
+       set name = btrim(p_name), type = p_type, game = p_game, edition = v_edition,
            price = p_price, stock = p_stock,
            status = case when p_stock <= 0 then 'sold'
                          when status in ('sold','soldout') then 'available' else status end,
@@ -360,8 +383,9 @@ begin
 
   return jsonb_build_object(
     'id', v_row.id, 'name', v_row.name, 'type', v_row.type, 'game', v_row.game,
-    'price', v_row.price, 'stock', v_row.stock, 'status', v_row.status,
-    'subtitle', v_row.subtitle, 'image_url', v_row.image_url, 'created', v_new
+    'edition', v_row.edition, 'price', v_row.price, 'stock', v_row.stock,
+    'status', v_row.status, 'subtitle', v_row.subtitle, 'image_url', v_row.image_url,
+    'created', v_new
   );
 end $$;
 
@@ -380,7 +404,7 @@ begin
   end if;
   return public.admin_upsert_product(
     p_product_id, p_name, v_row.type, v_row.game, p_price, p_stock,
-    v_row.subtitle, v_row.image_url, p_pin
+    v_row.edition, v_row.subtitle, v_row.image_url, p_pin
   );
 end $$;
 
@@ -428,7 +452,7 @@ end $$;
 -- 14) 실행 권한
 grant execute on function public.expire_unpaid_orders() to anon, authenticated;
 grant execute on function public.cancel_my_order(text, text, text) to anon, authenticated;
-grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text) to anon, authenticated;
+grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text) to anon, authenticated;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
 grant execute on function public.admin_delete_product(text, text) to anon, authenticated;
 grant execute on function public.admin_set_require_login(boolean, text) to anon, authenticated;
