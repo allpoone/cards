@@ -233,8 +233,10 @@
         var el = $("checkoutModal");
         if (!el || el.hidden) return;
         el.hidden = true;
-        APONav.refreshLock();
+        /* 주문서를 그냥 닫았으면 바로구매 줄만 비우고 장바구니는 그대로 둡니다. */
         var s2 = store();
+        if (s2 && s2.clearDirect) s2.clearDirect();
+        APONav.refreshLock();
         if (s2 && s2.cart().length) openCart();
       },
       function () { openCheckout(); }
@@ -448,8 +450,9 @@
   function pointsCalcState() {
     var s = store();
     if (!s) return null;
-    var lines = s.cart();
-    var total = s.cartTotal();
+    /* 주문서 기준: 바로구매면 그 1건, 아니면 장바구니 */
+    var lines = s.checkoutLines ? s.checkoutLines() : s.cart();
+    var total = s.checkoutTotal ? s.checkoutTotal() : s.cartTotal();
     var rates = [];
     lines.forEach(function (l) {
       if (!l.product || l.product.earnPoints === false) return;
@@ -610,12 +613,18 @@
     box.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  function openCheckout() {
+  function openCheckout(mode) {
     var s = store();
     if (!s) return;
-    var lines = s.cart();
+    /* "direct" = 바로구매(그 상품 1건만), "cart" = 장바구니 전체, 없으면 지금 상태 그대로 */
+    if (s.setCheckoutMode) s.setCheckoutMode(mode);
+    var lines = s.checkoutLines ? s.checkoutLines() : s.cart();
     if (!lines.length) {
-      toast("장바구니가 비어 있습니다.", "warn");
+      var wasDirect = s.checkoutMode && s.checkoutMode() === "direct";
+      if (s.clearDirect) s.clearDirect();
+      toast(wasDirect
+        ? "바로 구매할 상품을 찾지 못했습니다. 품절이거나 판매가 중지됐을 수 있습니다."
+        : "장바구니가 비어 있습니다.", "warn");
       return;
     }
 
@@ -632,7 +641,7 @@
       return;
     }
 
-    var total = s.cartTotal();
+    var total = s.checkoutTotal ? s.checkoutTotal() : s.cartTotal();
     var saved = savedBuyer();
     var meta = user && s.userMeta ? s.userMeta() : {};
     var ship = (meta && meta.shipping) || {};
@@ -730,7 +739,8 @@
 
       '<div class="co-actions">' +
       '<button class="btn btn--gold btn--block" type="submit" id="checkoutSubmit">' + esc(submitLabel) + "</button>" +
-      '<button class="btn btn--ghost btn--block" type="button" data-close-checkout>장바구니로 돌아가기</button>' +
+      '<button class="btn btn--ghost btn--block" type="button" data-close-checkout>' +
+      esc(s.checkoutIsDirect && s.checkoutIsDirect() ? "바로구매 그만 두기" : "장바구니로 돌아가기") + "</button>" +
       "</div>" +
       '<p class="co__agree">주문을 넣으면 입금대기 상태로 접수되며, <b>10분 안에 입금하지 않으면 자동으로 취소</b>됩니다(재고는 다시 판매됩니다). 입금 확인 후 발송이 시작됩니다.</p>' +
       "</form>" +
@@ -869,7 +879,10 @@
       if (err && (err.code === "OUT_OF_STOCK" || err.code === "EMPTY_CART")) {
         s.reload();
         renderCart();
-        if (err.code === "EMPTY_CART") closeEl($("checkoutModal"));
+        if (err.code === "EMPTY_CART") {
+          if (s.clearDirect) s.clearDirect();
+          closeEl($("checkoutModal"));
+        }
       }
     });
   }
@@ -2333,7 +2346,7 @@
       }
       if (t.closest("[data-go-checkout]")) {
         e.preventDefault();
-        openCheckout();
+        openCheckout("cart");
         return;
       }
 

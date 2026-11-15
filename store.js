@@ -551,6 +551,128 @@
     saveCart([]);
   }
 
+  /* ── 바로구매 (장바구니와 상관없이 고른 1건만 주문) ────────
+     · checkoutMode = "direct" 이면 주문서·주문은 directLines 만 봅니다.
+     · directLines 는 화면 안에서만 유지됩니다(새로고침하면 사라지고 장바구니는 그대로). */
+  var checkoutMode = "cart";       /* "cart" | "direct" */
+  var directLines = null;          /* [{ id, qty, seats }] */
+
+  function setCheckoutMode(mode) {
+    if (mode === "cart") clearDirect();
+    else if (mode === "direct") checkoutMode = "direct";
+    return checkoutMode;
+  }
+
+  function clearDirect() {
+    directLines = null;
+    checkoutMode = "cart";
+  }
+
+  /* [바로구매] — 장바구니에 담지 않고, 고른 그 상품 1건만 주문서로 넘깁니다. */
+  function startDirectBuy(id, qty, seats) {
+    var p = getProduct(id);
+    if (!p) return { ok: false, reason: "not_found", message: "상품을 찾을 수 없습니다." };
+    if (p.hidden) return { ok: false, reason: "hidden", message: "현재 판매 중이지 않은 상품입니다." };
+    if (p.soldOut) return { ok: false, reason: "soldout", message: "품절된 상품입니다." };
+
+    var pick = seatList(seats);
+    if (pick) {
+      if (pick.length > p.stock) {
+        return {
+          ok: false,
+          reason: "stock",
+          message: "남은 " + p.stock + unitOf(p) + "까지만 구매할 수 있습니다.",
+        };
+      }
+      directLines = [{ id: id, qty: pick.length, seats: pick }];
+      checkoutMode = "direct";
+      return { ok: true, qty: pick.length, seats: pick, message: p.name + " " + pick.length + unitOf(p) + " 바로 구매" };
+    }
+
+    var q = clampInt(qty, 1, 999);
+    if (q > p.stock) {
+      return {
+        ok: false,
+        reason: "stock",
+        message: "남은 " + p.stock + unitOf(p) + "까지만 구매할 수 있습니다.",
+      };
+    }
+    directLines = [{ id: id, qty: q, seats: null }];
+    checkoutMode = "direct";
+    return { ok: true, qty: q, message: p.name + " " + q + unitOf(p) + " 바로 구매" };
+  }
+
+  /* 바로구매 줄을 장바구니 줄과 같은 모양으로 만듭니다. */
+  function directCheckoutLines() {
+    if (!directLines || !directLines.length) return [];
+    return directLines.map(function (d) {
+      var p = getProduct(d.id);
+      if (!p || p.hidden) return null;
+      var seats = d.seats ? seatList(d.seats) : null;
+      var qty = seats ? seats.length : clampInt(d.qty, 1, 999);
+      return {
+        product: p,
+        id: d.id,
+        qty: qty,
+        seats: seats,
+        unitPrice: Number(p.price) || 0,
+        lineTotal: (Number(p.price) || 0) * qty,
+      };
+    }).filter(function (l) { return !!l; });
+  }
+
+  /* 주문서가 계산하고 주문할 줄 — 바로구매 중이면 그 1건, 아니면 장바구니. */
+  function checkoutLines() {
+    if (checkoutMode === "direct") return directCheckoutLines();
+    return cartLines();
+  }
+
+  function checkoutTotal() {
+    return checkoutLines().reduce(function (n, l) { return n + l.lineTotal; }, 0);
+  }
+
+  function checkoutIsDirect() {
+    return checkoutMode === "direct" && directCheckoutLines().length > 0;
+  }
+
+  /* 바로구매로 주문을 마친 뒤 장바구니 정리
+     · 일반 상품: 장바구니에 있던 그 상품 줄만 뺍니다 (다른 상품은 그대로).
+     · 오리파: 장바구니에 담겨 있던 번호 중 방금 산 번호만 뺍니다 (남은 번호가 없으면 줄 제거). */
+  function pruneCartAfterDirect(lines) {
+    var bought = {};
+    (lines || []).forEach(function (l) { if (l && l.id) bought[l.id] = l; });
+    if (!Object.keys(bought).length) return;
+
+    var next = [];
+    var changed = false;
+    syncCart().forEach(function (line) {
+      var hit = bought[line.id];
+      if (!hit) { next.push(line); return; }
+
+      var seats = hit.seats && hit.seats.length ? hit.seats : null;
+      if (seats && line.seats && line.seats.length) {
+        var rest = line.seats.filter(function (n) { return seats.indexOf(n) === -1; });
+        if (!rest.length) { changed = true; return; }
+        if (rest.length !== line.seats.length) changed = true;
+        next.push({ id: line.id, qty: rest.length, seats: rest });
+        return;
+      }
+      /* 일반 상품(또는 번호가 없는 줄): 그 상품 줄만 뺍니다. */
+      changed = true;
+    });
+    if (changed) saveCart(next);
+  }
+
+  /* 주문 성공 뒤 장바구니 처리 — 장바구니 주문만 통째로 비웁니다. */
+  function finishCheckout(lines) {
+    if (checkoutMode !== "direct") {
+      clearCart();
+      return;
+    }
+    pruneCartAfterDirect(lines);
+    clearDirect();
+  }
+
   /* ── 주문번호 ─────────────────────────────────────────── */
   function ymdSeoul() {
     try {
@@ -596,8 +718,8 @@
     emit("orders");
   }
 
-  function localPlaceOrder(form) {
-    var lines = cartLines();
+  function localPlaceOrder(form, lines) {
+    lines = lines || cartLines();
     if (!lines.length) {
       var err0 = new Error("장바구니가 비어 있습니다.");
       err0.code = "EMPTY_CART";
@@ -682,7 +804,7 @@
     orders.unshift(order);
     saveOrders(orders);
 
-    clearCart();
+    finishCheckout(lines);
     emit("products");
     return order;
   }
@@ -953,16 +1075,16 @@
 
   /* ── 주문 넣기 ────────────────────────────────────────── */
   function placeOrder(form) {
-    var lines = cartLines();
+    var lines = checkoutLines();
     if (!lines.length) {
-      var e = new Error("장바구니가 비어 있습니다.");
+      var e = new Error(checkoutMode === "direct" ? "주문할 상품이 없습니다." : "장바구니가 비어 있습니다.");
       e.code = "EMPTY_CART";
       return Promise.reject(e);
     }
 
     if (mode !== "db") {
       try {
-        return Promise.resolve(localPlaceOrder(form));
+        return Promise.resolve(localPlaceOrder(form, lines));
       } catch (err) {
         return Promise.reject(err);
       }
@@ -992,7 +1114,7 @@
     function done(data) {
       var raw = Array.isArray(data) ? data[0] : data;
       var order = normalizeDbOrder(raw && raw.order ? raw.order : raw);
-      clearCart();
+      finishCheckout(lines);
       pointsPromise = null;
       pointsCache = null;
       return fetchDbProducts().then(function () {
@@ -2609,6 +2731,15 @@
     seatText: seatText,
     removeFromCart: removeFromCart,
     clearCart: clearCart,
+
+    /* 바로구매 (장바구니와 별개 주문) */
+    startDirectBuy: startDirectBuy,
+    checkoutLines: checkoutLines,
+    checkoutTotal: checkoutTotal,
+    checkoutIsDirect: checkoutIsDirect,
+    checkoutMode: function () { return checkoutMode; },
+    setCheckoutMode: setCheckoutMode,
+    clearDirect: clearDirect,
 
     /* 오리파 번호판 */
     getOripaBoard: getOripaBoard,

@@ -1114,16 +1114,16 @@
         if (action === "inquire") { e.stopPropagation(); inquire(p); return; }
         if (action === "buy") {
           e.stopPropagation();
-          /* 1개 담고 바로 주문서로 — 품절/잔여수량은 addToCart 가, 회원필수는 openCheckout 이 막습니다 */
-          var buyRes = window.APOStore
-            ? APOStore.addToCart(p.id, 1)
+          /* 장바구니에 이미 담겨 있어도 막히지 않게 — 이 상품 1개만 바로 주문서로 갑니다. */
+          var buyRes = window.APOStore && APOStore.startDirectBuy
+            ? APOStore.startDirectBuy(p.id, 1)
             : { ok: false, message: "장바구니를 사용할 수 없습니다." };
           if (!buyRes.ok) {
             toast(buyRes.message, "warn");
             if (buyRes.reason === "stock" || buyRes.reason === "soldout") render();
             return;
           }
-          if (window.APOShop && APOShop.openCheckout) APOShop.openCheckout();
+          if (window.APOShop && APOShop.openCheckout) APOShop.openCheckout("direct");
           else if (window.APOShop) APOShop.openCart();
           return;
         }
@@ -1227,8 +1227,8 @@
           toast("번호를 먼저 선택해 주세요.", "warn");
           return;
         }
-        var buyRes = window.APOStore
-          ? (buyPicks ? APOStore.addToCart(buyId, buyPicks.length, buyPicks) : APOStore.addToCart(buyId, buyQty))
+        var buyRes = window.APOStore && APOStore.startDirectBuy
+          ? (buyPicks ? APOStore.startDirectBuy(buyId, buyPicks.length, buyPicks) : APOStore.startDirectBuy(buyId, buyQty))
           : { ok: false, message: "장바구니를 사용할 수 없습니다." };
         if (!buyRes.ok) {
           toast(buyRes.message, "warn");
@@ -1236,8 +1236,8 @@
           return;
         }
         closeModal();
-        /* 주문서로 바로 (로그인 필수 설정이면 openCheckout 이 로그인 모달을 띄웁니다) */
-        if (window.APOShop && APOShop.openCheckout) APOShop.openCheckout();
+        /* 주문서로 바로 (장바구니에 담긴 것과 상관없이 이 상품만 주문합니다) */
+        if (window.APOShop && APOShop.openCheckout) APOShop.openCheckout("direct");
         else if (window.APOShop) APOShop.openCart();
         return;
       }
