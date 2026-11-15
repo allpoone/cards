@@ -14,6 +14,8 @@
 | `styles.css` | 디자인 |
 | `cards.js` | **설정 + 상품 목록 — 여기만 고치면 됩니다** |
 | `app.js` | 화면 동작 (수정할 필요 없음) |
+| `logo.png` | 가게 로고 원본 (1254×1254, og:image·apple-touch-icon 용) |
+| `logo-160.png` | 헤더·파비콘용 소형 로고 (160×160) |
 
 ## 자주 하는 수정
 
@@ -86,9 +88,16 @@ youtubeUrl: "https://www.youtube.com/@채널/live",     // 라이브 주소
 그라데이션 자리표시자 대신 사진이 표시됩니다. (권장 비율 5:7 세로)
 
 ### 4) 샘플 표시 끄기
-
 실제 상품으로 모두 교체한 뒤 `SITE_CONFIG.showSampleBanner` 를 `false` 로 바꾸고,
 각 상품의 `sample: true` 를 지웁니다.
+
+## 로고 교체
+
+새 로고 이미지를 `logo.png` 에 덮어쓰고, 같은 이미지를 160×160으로 줄여 `logo-160.png` 에 저장한 뒤 `./deploy.sh "로고 교체"` 를 실행하면 됩니다.
+
+```bash
+python3 -c "from PIL import Image; im=Image.open('logo.png').convert('RGB'); im.resize((160,160), Image.LANCZOS).save('logo-160.png')"
+```
 
 ## 배포 방법
 
