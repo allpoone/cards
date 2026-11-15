@@ -1031,7 +1031,10 @@
     var subtitle = String(data.subtitle == null ? (prev.subtitle || "") : data.subtitle).trim();
     var image = String(data.image_url == null ? (prev.image_url || "") : data.image_url).trim();
     var earnPoints = data.earn_points === undefined ? (prev.earn_points !== false) : !!data.earn_points;
-    var hidden = data.is_hidden === undefined ? (prev.is_hidden === true) : !!data.is_hidden;
+    var prevHidden = prev.is_hidden === undefined
+      ? (productState[id] ? productState[id].is_hidden : undefined)
+      : prev.is_hidden;
+    var hidden = data.is_hidden === undefined ? (prevHidden === true) : !!data.is_hidden;
     var pointRate = data.point_rate === undefined
       ? (prev.point_rate == null ? null : Number(prev.point_rate))
       : (data.point_rate == null || data.point_rate === "" ? null : Number(data.point_rate));
