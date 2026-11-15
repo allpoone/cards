@@ -39,8 +39,16 @@ for (const f of ['cards.js', 'store.js', 'app.js', 'shop.js', 'admin.js']) {
 log('JS: ' + JSON.stringify(result.js));
 
 /* ── 2. PGlite: 스키마 + 패치 실행 ────────────────────── */
-const PGliteMod = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.2.17/dist/index.js');
-const pg = new PGliteMod.PGlite();
+let pgcrypto = null;
+try {
+  const ext = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.3.14/dist/contrib/pgcrypto.js');
+  pgcrypto = ext.pgcrypto;
+  result.sql.pgcrypto = 'loaded';
+} catch (e) {
+  result.sql.pgcrypto = 'unavailable: ' + e.message;
+}
+const PGliteMod = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.3.14/dist/index.js');
+const pg = pgcrypto ? new PGliteMod.PGlite({ extensions: { pgcrypto } }) : new PGliteMod.PGlite();
 await pg.waitReady;
 
 const prelude = `
@@ -64,7 +72,10 @@ grant usage on schema public to anon, authenticated;
 `;
 
 const runFile = async (name, label) => {
-  const sql = await getText(name);
+  let sql = await getText(name);
+  if (!pgcrypto) {
+    sql = sql.replace(/create extension if not exists pgcrypto;/g, '');
+  }
   try {
     await pg.exec(sql);
     result.sql[label] = 'ok (' + sql.length + ' bytes)';
@@ -75,6 +86,7 @@ const runFile = async (name, label) => {
 };
 
 try {
+  if (!pgcrypto) await pg.exec("create or replace function gen_random_bytes(int) returns bytea language sql as $f$ select decode('00112233445566778899aabbccddeeff','hex') $f$");
   await pg.exec(prelude);
   result.sql.prelude = 'ok';
 } catch (e) {

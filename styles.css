@@ -2034,10 +2034,11 @@ body.auth-pending #headerUser { visibility: hidden; }
 /* 헤더 보유 적립금 배지 — 금색 테마, 숫자와 단위(P) 색 구분. 보기 전용(클릭 없음). */
 .header-points {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
-  min-height: 30px;
-  padding: 6px 10px;
+  height: 40px;
+  padding: 0 11px;
   border-radius: 999px;
   border: 1px solid rgba(227, 192, 122, 0.62);
   background: linear-gradient(180deg, rgba(227, 192, 122, 0.22), rgba(227, 192, 122, 0.1));
@@ -2057,9 +2058,16 @@ body.auth-pending #headerUser { visibility: hidden; }
 .pt-num { color: #fff8ea; font-weight: 850; letter-spacing: 0.01em; }
 .pt-unit { color: #5fe8b4; font-weight: 900; font-size: 0.94em; }
 .header-points .pt-unit { margin-left: 1px; }
+/* 숫자와 P를 같은 줄에 딱 맞춥니다 (옆 버튼 40px 과 높이 정렬) */
+.header-points .pt-num,
+.header-points .pt-unit {
+  display: inline-block;
+  line-height: 1;
+  vertical-align: middle;
+}
 
 @media (max-width: 520px) {
-  .header-points { padding: 5px 8px; font-size: 0.72rem; }
+  .header-points { height: 40px; padding: 0 9px; font-size: 0.72rem; }
 }
 
 /* 상품 카드 적립 배지 */
