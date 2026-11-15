@@ -804,6 +804,7 @@ button.badge[aria-pressed="true"]::after {
 .card__actions .btn[disabled]:hover { transform: none; border-color: var(--line-strong); }
 
 @media (max-width: 420px) {
+  .card__actions { grid-template-columns: 1fr; }
   .card__actions .btn { padding: 10px 4px; }
 }
 
