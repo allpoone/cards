@@ -256,7 +256,12 @@
     out.stock = stock;
     out.status = status;
     out.soldOut = stock <= 0;
-    out.earnPoints = row ? row.earn_points !== false : (d.earnPoints !== false);
+    out.earnPoints = row
+      ? row.earn_points !== false
+      : (local.earn_points === undefined ? (d.earnPoints !== false) : local.earn_points !== false);
+    /* 상품별 적립률(%) — DB 값이 없으면 null(상점 기본 적립률) */
+    var pr = row ? row.point_rate : (local.point_rate === undefined ? d.pointRate : local.point_rate);
+    out.pointRate = (pr == null || pr === "" || !isFinite(Number(pr))) ? null : Number(pr);
     /* 기존 화면 함수들이 쓰는 잔여 수량 필드도 같이 맞춰 줍니다. */
     if (out.type === "oripa") out.remainingUnits = stock;
     else out.remaining = stock;
@@ -640,6 +645,7 @@
   }
 
   var PRODUCT_FIELDS = {
+    point_rate: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate",
     points: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points",
     full:   "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order",
     v1:     "id, name, type, game, price, stock, status",
@@ -662,6 +668,13 @@
       sort_order: Number(r.sort_order) || 0,
       /* 적립금 컬럼이 아직 없는 DB에서는 모든 상품 적립 대상으로 봅니다. */
       earn_points: r.earn_points === false ? false : true,
+      /* 상품별 적립률(%). NULL 이면 상점 기본 적립률을 씁니다. */
+      point_rate: (function () {
+        var v = r.point_rate;
+        if (v == null) return null;
+        var n = Number(v);
+        return isFinite(n) ? n : null;
+      })(),
     };
   }
 
@@ -682,10 +695,10 @@
     });
   }
 
-  /* 새 열(subtitle·image_url)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
+  /* 새 열(subtitle·image_url·적립률)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
   function fetchDbProducts() {
     return connectDb().then(function (c) {
-      var order = ["points", "full", "v1", "min"];
+      var order = ["point_rate", "points", "full", "v1", "min"];
       function attempt(i) {
         return c.from("products").select(PRODUCT_FIELDS[order[i]]).then(function (res) {
           if (res.error) {
@@ -991,6 +1004,11 @@
     var stock = clampInt(data.stock, 0, 99999);
     var subtitle = String(data.subtitle == null ? (prev.subtitle || "") : data.subtitle).trim();
     var image = String(data.image_url == null ? (prev.image_url || "") : data.image_url).trim();
+    var earnPoints = data.earn_points === undefined ? (prev.earn_points !== false) : !!data.earn_points;
+    var pointRate = data.point_rate === undefined
+      ? (prev.point_rate == null ? null : Number(prev.point_rate))
+      : (data.point_rate == null || data.point_rate === "" ? null : Number(data.point_rate));
+    if (pointRate != null && !isFinite(pointRate)) pointRate = null;
     var status = statusFromStock(stock, prev.status || (base && base.status) || "available");
 
     if (!name) {
@@ -1001,7 +1019,7 @@
 
     if (base && !prev.id) {
       /* cards.js 상품: 로컬 수정값만 덮어쓰기 */
-      productState[id] = { name: name, price: price, stock: stock, status: status };
+      productState[id] = { name: name, price: price, stock: stock, status: status, earn_points: earnPoints, point_rate: pointRate };
     } else {
       var row = {
         id: id,
@@ -1016,6 +1034,8 @@
         status: status,
         subtitle: subtitle,
         image_url: image,
+        earn_points: earnPoints,
+        point_rate: pointRate,
         sort_order: prev.sort_order || (1000 + extraProducts.length * 10),
       };
       var found = false;
@@ -1093,12 +1113,28 @@
       p_pin: null,
     };
 
-    /* 적립금 칸(earn_points)이 실제로 있는 DB에서만 보냅니다.
+    /* 적립금 칸(earn_points)·적립률 칸(point_rate)이 실제로 있는 DB에서만 보냅니다.
        업그레이드 전 DB에서는 예전 그대로 상품 저장이 됩니다. */
-    if (dbColumns === "points") {
+    var hasEarn = dbColumns === "points" || dbColumns === "point_rate";
+    var hasRate = dbColumns === "point_rate";
+
+    if (hasEarn) {
       payload.p_earn_points = data.earn_points === undefined
         ? (prev ? prev.earn_points !== false : true)
         : !!data.earn_points;
+    }
+
+    if (hasRate) {
+      var rawRate = data.point_rate === undefined
+        ? (prev ? prev.point_rate : null)
+        : data.point_rate;
+      var rate = (rawRate == null || rawRate === "") ? null : Number(rawRate);
+      if (rate != null && (!isFinite(rate) || rate < 0 || rate > 50)) {
+        var bad = new Error("상품 적립률은 0 ~ 50 사이로 입력해 주세요.");
+        bad.code = "BAD_INPUT";
+        return Promise.reject(bad);
+      }
+      payload.p_point_rate = rate == null ? null : Math.round(rate * 100) / 100;
     }
 
     function done(res) {
@@ -1114,7 +1150,8 @@
       payload.p_type === prev.type && payload.p_game === prev.game &&
       (payload.p_edition || "") === (prev.edition || "") &&
       payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url &&
-      (dbColumns !== "points" || payload.p_earn_points === (prev.earn_points !== false));
+      (!hasEarn || payload.p_earn_points === (prev.earn_points !== false)) &&
+      (!hasRate || payload.p_point_rate === (prev.point_rate == null ? null : Number(prev.point_rate)));
 
     if (onlyBasic) {
       return rpc("admin_update_product", {
@@ -1755,6 +1792,37 @@
     return isFinite(r) && r >= 0 ? r : 0;
   }
 
+  /* 상품 하나에 적용되는 적립률(%)
+     · 적립 OFF 상품 = 0
+     · 상품 적립률이 있으면 그 값, 없으면 상점 기본 적립률 */
+  function productRate(p) {
+    if (!p || p.earnPoints === false) return 0;
+    var r = p.pointRate;
+    if (r == null || !isFinite(Number(r))) return pointRate();
+    var n = Number(r);
+    return n >= 0 ? n : 0;
+  }
+
+  /* 장바구니 줄들로 계산한 예상 적립금 (서버 place_order 와 같은 방식)
+     상품별 (줄 금액 × 적립률) 합 → 적립금 사용 시 실결제 비율 → 2단계 반올림 */
+  function calcEarnForLines(lines, total, usePoints) {
+    var t = Math.min(100000000, Math.max(0, Math.round(Number(total) || 0)));
+    if (!t) return 0;
+    var raw = 0;
+    (lines || []).forEach(function (l) {
+      if (!l || !l.product) return;
+      var r = productRate(l.product);
+      if (!r) return;
+      raw += (Number(l.lineTotal) || 0) * r / 100;
+    });
+    var left = Math.max(0, t - Math.round(Number(usePoints) || 0));
+    raw = raw * left / t;
+    raw = Math.round(raw * 1e6) / 1e6;
+    var step1 = Math.round(raw / 10) * 10;
+    var step2 = Math.round(step1 / 100) * 100;
+    return Math.max(0, Math.round(step2));
+  }
+
   /* DB에 적립금 기능(point_rate 열)이 준비됐는지 */
   function pointsReady() {
     return !!settings.pointsReady && mode === "db";
@@ -2011,6 +2079,8 @@
 
     /* 적립금 */
     pointRate: pointRate,
+    productRate: productRate,
+    calcEarnForLines: calcEarnForLines,
     pointsReady: pointsReady,
     calcEarnPoints: calcEarnPoints,
     myPoints: myPoints,

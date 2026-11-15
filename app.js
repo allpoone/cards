@@ -77,16 +77,24 @@
     return !!(s && s.pointsReady && s.pointsReady());
   }
 
+  /* 이 상품에 적용되는 적립률(%) — 상품 설정이 없으면 상점 기본 적립률 */
+  function earnRateOf(p) {
+    var s = window.APOStore;
+    if (!p || p.earnPoints === false) return 0;
+    if (s && s.productRate) return s.productRate(p);
+    return pointRate();
+  }
+
   /* 이 상품을 1개(1구) 살 때 적립 예정 포인트. 적립 제외 상품은 0 */
   function earnPointsOf(p) {
     var s = window.APOStore;
     if (!p || p.earnPoints === false || !s || !s.calcEarnPoints) return 0;
-    return s.calcEarnPoints(p.price, pointRate());
+    return s.calcEarnPoints(p.price, earnRateOf(p));
   }
 
   function earnBadgeMarkup(p) {
     if (!pointsReady() || p.earnPoints === false) return "";
-    var rate = pointRate();
+    var rate = earnRateOf(p);
     if (rate <= 0) return "";
     var pnt = earnPointsOf(p);
     return '<span class="earn-badge" title="입금 확인 시 적립">🎁 ' +
@@ -409,11 +417,11 @@
     /* 적립금 */
     if (pointsReady() && p.earnPoints === false) {
       rows.push(["적립금", '<span class="detail__earn is-off">적립 제외 상품</span>']);
-    } else if (pointsReady() && pointRate() > 0) {
+    } else if (pointsReady() && earnRateOf(p) > 0) {
       var pnt = earnPointsOf(p);
       rows.push(["적립금", '<span class="detail__earn">' + esc(unitWord(p)) + "당 " +
         (pnt > 0 ? pnt.toLocaleString("ko-KR") + "P" : "-") +
-        " <em>(" + pointRate() + "% · 입금 확인 시)" + "</em></span>"]);
+        " <em>(" + earnRateOf(p) + "% · 입금 확인 시)" + "</em></span>"]);
     }
 
     var lineup = "";

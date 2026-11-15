@@ -7,17 +7,19 @@
 --
 -- 이 파일에 함께 들어 있는 것
 --  · 손님 휴대폰 번호 중복 확인 함수(check_phone_available)  ← 2차에서 빠졌던 부분
---  · 회원 적립금(포인트) 지갑·내역·적립률·상품별 적립 ON/OFF
+--  · 회원 적립금(포인트) 지갑·내역·기본 적립률·상품별 적립 ON/OFF·상품별 적립률
 --
 -- 적립 규칙 요약
 --  · 기본 적립률 2% (사장님 페이지에서 0~50% 사이로 수정)
+--  · 상품마다 적립률(%)을 따로 정할 수 있음 (비워 두면 기본 적립률, 적립 OFF면 0P)
 --  · 적립 시점: [입금완료]가 확인된 순간 (주문만 넣었을 때는 적립 안 됨)
 --  · 사용: 로그인 회원이 주문서에서 보유 적립금을 입력 → 입금 금액에서 차감
 --  · 반올림: 1의 자리 반올림 → 다시 10의 자리 반올림(100원 단위)
 --      예) 49,900원 × 2% = 998 → 1,000 → 1,000P
 --          845 → 850 → 900
 --          844 → 840 → 800
---  · 적립 대상 금액: 적립 ON 상품 금액 합계에서, 적립금으로 결제한 비율만큼 빼고 계산
+--  · 적립 대상 금액: 적립 ON 상품의 (금액 × 그 상품 적립률) 합계에서,
+--      적립금으로 결제한 비율만큼 빼고 계산
 --  · 주문 취소(손님 취소·10분 미입금 자동취소·사장님 취소) 시
 --      사용한 적립금은 그대로 환불, 이미 적립된 포인트는 회수
 -- ============================================================
@@ -40,6 +42,16 @@ alter table public.shop_public_settings
 -- 1-2) 상품별 적립금 지급 여부 — 기본 ON
 alter table public.products
   add column if not exists earn_points boolean not null default true;
+
+-- 1-2-1) 상품별 적립률(%) — 비어 있으면(NULL) 위의 기본 적립률을 씁니다
+alter table public.products
+  add column if not exists point_rate numeric(5,2) default null;
+
+alter table public.products
+  drop constraint if exists products_point_rate_check;
+alter table public.products
+  add constraint products_point_rate_check
+  check (point_rate is null or point_rate between 0 and 50);
 
 -- 1-3) 주문에 적립금 관련 값
 --   used_points   : 이 주문에서 사용한 적립금
@@ -361,6 +373,7 @@ revoke all on function public.order_json(uuid) from public;
 -- 기존 place_order(jsonb, jsonb) 호출도 그대로 동작합니다.
 -- (p_use_points 를 보내지 않으면 0 = 적립금 사용 안 함)
 -- ============================================================
+drop function if exists public.place_order(jsonb, jsonb, integer);
 drop function if exists public.place_order(jsonb, jsonb);
 
 create or replace function public.place_order(
@@ -382,7 +395,9 @@ declare
   v_suffix    text;
   v_total     int := 0;
   v_subtotal  int := 0;
-  v_eligible  int := 0;
+  v_earn_raw  numeric := 0;
+  v_step1     numeric;
+  v_step2     numeric;
   v_use       int := greatest(0, coalesce(p_use_points, 0));
   v_balance   int := 0;
   v_rate      numeric(5,2) := 2;
@@ -396,10 +411,8 @@ declare
   v_uid       uuid := auth.uid();
   v_require   boolean := false;
 begin
-  /* 10분 지난 미입금 주문을 먼저 정리 (재고·적립금 복구) */
   perform public.expire_unpaid_orders();
 
-  /* --- 회원 전용 설정 확인 --------------------------------- */
   select require_login_to_order, coalesce(point_rate, 2)
     into v_require, v_rate
     from public.shop_public_settings
@@ -410,26 +423,23 @@ begin
       using errcode = '42501';
   end if;
 
-  /* --- 입력 검증 ------------------------------------------- */
   if v_name is null then
     raise exception '주문자명을 입력해 주세요.' using errcode = '22023';
   end if;
-  if length(v_phone) < 9 or length(v_phone) > 11 then
+  if length(v_phone) not between 9 and 11 then
     raise exception '연락처를 정확히 입력해 주세요.' using errcode = '22023';
   end if;
   if p_items is null
-     or jsonb_typeof(p_items) <> 'array'
+     or jsonb_typeof(p_items) != 'array'
      or jsonb_array_length(p_items) = 0 then
     raise exception '주문할 상품이 없습니다.' using errcode = '22023';
   end if;
 
-  /* --- 적립금은 로그인 회원만 사용할 수 있습니다 ------------ */
   if v_use > 0 and v_uid is null then
     raise exception '적립금은 로그인한 회원만 사용할 수 있습니다.'
       using errcode = '42501';
   end if;
 
-  /* --- 재고 차감 (같은 상품은 합산, id 순서로 잠가 교착 방지) --- */
   for v_item in
     select a.product_id, sum(a.qty)::int as qty
     from (
@@ -440,7 +450,7 @@ begin
     group by a.product_id
     order by a.product_id
   loop
-    if v_item.qty is null or v_item.qty <= 0 then
+    if v_item.qty is null or greatest(v_item.qty, 0) = 0 then
       raise exception '수량이 올바르지 않습니다: %', v_item.product_id
         using errcode = '22023';
     end if;
@@ -456,7 +466,7 @@ begin
         using errcode = '22023';
     end if;
 
-    if v_stock < v_item.qty then
+    if v_item.qty > v_stock then
       raise exception '% 의 남은 재고가 %개입니다. 수량을 조정해 주세요.',
         v_item.product_id, v_stock
         using errcode = '22023';
@@ -464,13 +474,12 @@ begin
 
     update public.products
        set stock = stock - v_item.qty,
-           status = case when stock - v_item.qty <= 0 then 'sold' else status end,
+           status = case when greatest(stock - v_item.qty, 0) = 0 then 'sold' else status end,
            updated_at = now()
      where id = v_item.product_id;
   end loop;
 
-  /* --- 주문번호 생성 + 주문 저장 --------------------------- */
-  while not v_ok and v_attempt < 20 loop
+  while not v_ok and v_attempt between 0 and 19 loop
     v_attempt := v_attempt + 1;
 
     select string_agg(
@@ -508,7 +517,6 @@ begin
     raise exception '주문번호를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.';
   end if;
 
-  /* --- 주문 상품 줄 저장 ---------------------------------- */
   insert into public.order_items (
     order_id, product_id, product_name, unit_price, qty, line_total
   )
@@ -521,15 +529,15 @@ begin
   ) a
   join public.products p on p.id = a.product_id;
 
-  /* 상품 합계 / 적립 대상(적립 ON 상품) 합계 */
   select coalesce(sum(i.line_total), 0),
-         coalesce(sum(case when p.earn_points then i.line_total else 0 end), 0)
-    into v_subtotal, v_eligible
+         coalesce(sum(case when p.earn_points
+                           then i.line_total * (coalesce(p.point_rate, v_rate) / 100.0)
+                           else 0 end), 0)
+    into v_subtotal, v_earn_raw
     from public.order_items i
     join public.products p on p.id = i.product_id
    where i.order_id = v_order_id;
 
-  /* --- 적립금 사용 검증 + 차감 ---------------------------- */
   if v_use > 0 then
     if v_use > v_subtotal then
       raise exception '적립금은 주문 금액(%)보다 많이 사용할 수 없습니다.', v_subtotal
@@ -542,21 +550,21 @@ begin
      where user_id = v_uid
        for update;
 
-    if v_balance is null or v_balance < v_use then
+    if v_balance is null or v_use > v_balance then
       raise exception '보유 적립금이 부족합니다. (보유 %P)', coalesce(v_balance, 0)
         using errcode = '22023';
     end if;
 
-    /* 실결제 비율만큼 적립 대상 금액에서 빼고 적립금을 계산합니다. */
     if v_subtotal > 0 then
-      v_eligible := greatest(0,
-        round(v_eligible::numeric * (v_subtotal - v_use)::numeric / v_subtotal::numeric)::int);
+      v_earn_raw := v_earn_raw * (v_subtotal - v_use)::numeric / v_subtotal::numeric;
     else
-      v_eligible := 0;
+      v_earn_raw := 0;
     end if;
   end if;
 
-  v_earn := private.calc_earn_points(v_eligible, v_rate);
+  v_step1 := round(v_earn_raw / 10.0) * 10;
+  v_step2 := round(v_step1 / 100.0) * 100;
+  v_earn  := greatest(0, v_step2)::int;
   v_total := v_subtotal - v_use;
 
   update public.orders
@@ -581,7 +589,7 @@ end;
 $$;
 
 comment on function public.place_order(jsonb, jsonb, integer) is
-  '장바구니 주문 생성. 재고 원자적 차감 + 적립금 사용/적립 예정 계산. 로그인 회원이면 user_id 저장.';
+  '장바구니 주문 생성. 재고 원자적 차감 + 상품별 적립률로 적립금 사용/적립 예정 계산. 로그인 회원이면 user_id 저장.';
 
 
 -- ============================================================
@@ -968,22 +976,24 @@ comment on function public.admin_set_point_rate(numeric, text) is
 
 
 -- ============================================================
--- 12. 상품 추가·수정 — 적립금 지급 ON/OFF 포함
+-- 12. 상품 추가·수정 — 적립금 지급 ON/OFF · 상품별 적립률(%) 포함
 -- ============================================================
+drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text);
 drop function if exists public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, text);
 
 create or replace function public.admin_upsert_product(
-  p_id         text,
-  p_name       text,
-  p_type       text,
-  p_game       text,
-  p_price      integer,
-  p_stock      integer,
-  p_edition    text default null,
-  p_subtitle   text default null,
-  p_image_url  text default null,
+  p_id          text,
+  p_name        text,
+  p_type        text,
+  p_game        text,
+  p_price       integer,
+  p_stock       integer,
+  p_edition     text default null,
+  p_subtitle    text default null,
+  p_image_url   text default null,
   p_earn_points boolean default true,
-  p_pin        text default null
+  p_pin         text default null,
+  p_point_rate  numeric default null
 )
 returns jsonb
 language plpgsql
@@ -997,6 +1007,7 @@ declare
   v_new     boolean := false;
   v_edition text;
   v_earn    boolean := coalesce(p_earn_points, true);
+  v_rate    numeric(5,2);
 begin
   perform private.assert_admin(p_pin);
 
@@ -1009,23 +1020,31 @@ begin
   if p_game is null or p_game not in ('pokemon', 'onepiece', 'other') then
     raise exception '종목은 pokemon / onepiece / other 중 하나여야 합니다.' using errcode = '22023';
   end if;
-  if p_edition is not null and btrim(p_edition) <> ''
+  if p_edition is not null and btrim(p_edition) != ''
      and btrim(p_edition) not in ('KR', 'JP', 'EN') then
     raise exception '판본은 KR / JP / EN 중 하나이거나 비워 두어야 합니다.' using errcode = '22023';
   end if;
 
   v_edition := nullif(upper(btrim(coalesce(p_edition, ''))), '');
-  if p_price is null or p_price < 0 then
+  if p_price is null or greatest(p_price, 0) != p_price then
     raise exception '가격은 0원 이상이어야 합니다.' using errcode = '22023';
   end if;
   if p_price > 100000000 then
     raise exception '가격이 너무 큽니다. (1억 원 이하로 입력해 주세요)' using errcode = '22023';
   end if;
-  if p_stock is null or p_stock < 0 then
+  if p_stock is null or greatest(p_stock, 0) != p_stock then
     raise exception '재고는 0 이상이어야 합니다.' using errcode = '22023';
   end if;
   if p_stock > 99999 then
     raise exception '재고는 99,999개 이하로 입력해 주세요.' using errcode = '22023';
+  end if;
+
+  if p_point_rate is null then
+    v_rate := null;
+  elsif p_point_rate not between 0 and 50 then
+    raise exception '상품 적립률은 0 ~ 50 사이로 입력해 주세요.' using errcode = '22023';
+  else
+    v_rate := round(p_point_rate::numeric, 2);
   end if;
 
   if v_id is null then
@@ -1047,14 +1066,15 @@ begin
 
     insert into public.products (
       id, name, type, game, edition, price, stock, status, sort_order,
-      subtitle, image_url, earn_points, updated_at
+      subtitle, image_url, earn_points, point_rate, updated_at
     ) values (
       v_id, btrim(p_name), p_type, p_game, v_edition, p_price, p_stock,
-      case when p_stock <= 0 then 'sold' else 'available' end,
+      case when p_stock = 0 then 'sold' else 'available' end,
       v_sort,
       nullif(btrim(coalesce(p_subtitle, '')), ''),
       nullif(btrim(coalesce(p_image_url, '')), ''),
       v_earn,
+      v_rate,
       now()
     )
     returning * into v_row;
@@ -1069,13 +1089,14 @@ begin
            price     = p_price,
            stock     = p_stock,
            status    = case
-                         when p_stock <= 0 then 'sold'
+                         when p_stock = 0 then 'sold'
                          when status in ('sold', 'soldout') then 'available'
                          else status
                        end,
            subtitle  = nullif(btrim(coalesce(p_subtitle, '')), ''),
            image_url = nullif(btrim(coalesce(p_image_url, '')), ''),
            earn_points = v_earn,
+           point_rate  = v_rate,
            updated_at = now()
      where id = v_id
     returning * into v_row;
@@ -1093,13 +1114,14 @@ begin
     'subtitle', v_row.subtitle,
     'image_url', v_row.image_url,
     'earn_points', v_row.earn_points,
+    'point_rate', v_row.point_rate,
     'created',  v_new
   );
 end;
 $$;
 
-comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text) is
-  '관리자용 상품 추가/수정. 적립금 지급 여부(p_earn_points)까지 함께 저장.';
+comment on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric) is
+  '관리자용 상품 추가/수정. 적립금 지급 여부(p_earn_points)와 상품별 적립률(p_point_rate)까지 함께 저장.';
 
 create or replace function public.admin_update_product(
   p_product_id text,
@@ -1127,16 +1149,25 @@ begin
       using errcode = '22023';
   end if;
 
-  /* 분류·종목·설명·사진·적립 여부는 그대로 두고 이름·가격·재고만 바꿉니다. */
   return public.admin_upsert_product(
-    p_product_id, p_name, v_row.type, v_row.game, p_price, p_stock,
-    v_row.edition, v_row.subtitle, v_row.image_url, v_row.earn_points, p_pin
+    p_id          := p_product_id,
+    p_name        := p_name,
+    p_type        := v_row.type,
+    p_game        := v_row.game,
+    p_price       := p_price,
+    p_stock       := p_stock,
+    p_edition     := v_row.edition,
+    p_subtitle    := v_row.subtitle,
+    p_image_url   := v_row.image_url,
+    p_earn_points := v_row.earn_points,
+    p_point_rate  := v_row.point_rate,
+    p_pin         := p_pin
   );
 end;
 $$;
 
 comment on function public.admin_update_product(text, text, integer, integer, text) is
-  '관리자용 상품명·가격·재고 동시 수정. 적립 여부 등 나머지 값은 유지.';
+  '관리자용 상품명·가격·재고 동시 수정. 적립 여부·적립률 등 나머지 값은 유지.';
 
 
 -- ============================================================
@@ -1363,7 +1394,7 @@ grant execute on function public.auto_confirm_deposit(text, text)        to anon
 grant execute on function public.expire_unpaid_orders()                  to anon, authenticated;
 grant execute on function public.cancel_my_order(text, text, text)       to anon, authenticated;
 grant execute on function public.admin_set_point_rate(numeric, text)     to anon, authenticated;
-grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text) to anon, authenticated;
+grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric) to anon, authenticated;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
 grant execute on function public.admin_list_member_points(text, integer, text) to anon, authenticated;
 grant execute on function public.admin_adjust_points(uuid, integer, text, text) to anon, authenticated;
@@ -1380,6 +1411,7 @@ grant execute on function public.my_points(integer) to authenticated;
 select
   (select point_rate from public.shop_public_settings where id = 1) as "기본적립률",
   (select count(*) from public.products where earn_points)          as "적립상품수",
+  (select count(*) from public.products where point_rate is not null) as "상품별적립률설정",
   (select count(*) from public.products)                            as "전체상품수",
   (select count(*) from public.point_wallets)                       as "적립금지갑",
   (select count(*) from public.point_transactions)                  as "적립금내역",

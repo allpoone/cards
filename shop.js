@@ -328,27 +328,30 @@
     if (!s) return null;
     var lines = s.cart();
     var total = s.cartTotal();
-    var eligible = lines.reduce(function (n, l) {
-      return n + (l.product && l.product.earnPoints === false ? 0 : l.lineTotal);
-    }, 0);
+    var rates = [];
+    lines.forEach(function (l) {
+      if (!l.product || l.product.earnPoints === false) return;
+      var r = s.productRate ? s.productRate(l.product) : s.pointRate();
+      if (r > 0 && rates.indexOf(r) === -1) rates.push(r);
+    });
     var excluded = lines.filter(function (l) { return l.product && l.product.earnPoints === false; }).length;
     var cached = s.cachedPoints ? s.cachedPoints() : null;
     return {
+      lines: lines,
       total: total,
-      eligible: eligible,
+      rates: rates,
       excluded: excluded,
-      rate: s.pointRate ? s.pointRate() : 0,
+      rate: rates.length === 1 ? rates[0] : (rates.length ? null : 0),
       balance: cached ? Number(cached.balance) || 0 : null,
     };
   }
 
-  /* 실결제 금액 기준 적립 예정 포인트 (서버와 같은 방식) */
-  function earnFor(eligible, total, use, rate) {
+  /* 실결제 금액 기준 적립 예정 포인트 (상품별 적립률 · 서버와 같은 방식) */
+  function earnFor(state, use) {
     var s = store();
-    if (!s || total <= 0) return 0;
-    var left = Math.max(0, total - use);
-    var base = Math.round(Number(eligible) * left / total);
-    return s.calcEarnPoints(base, rate);
+    if (!s || !state || state.total <= 0) return 0;
+    if (s.calcEarnForLines) return s.calcEarnForLines(state.lines, state.total, use);
+    return 0;
   }
 
   function pointsBoxMarkup(user) {
@@ -375,22 +378,28 @@
       '<button class="btn btn--ghost btn--xs" type="button" data-use-all-points' +
       (balance === 0 ? " disabled" : "") + ">전액 사용</button>" +
       "</div>" +
-      '<p class="co-points__hint" id="coPointsHint">' + esc(earnHint(st.rate)) + "</p>" +
+      '<p class="co-points__hint" id="coPointsHint">' + esc(earnHint(st)) + "</p>" +
       '<dl class="co-points__sum">' +
       "<div><dt>상품 합계</dt><dd>" + won(st.total) + "</dd></div>" +
       '<div><dt>적립금 사용</dt><dd id="coUsed">- ' + won(0) + "</dd></div>" +
       '<div class="is-total"><dt>최종 입금액</dt><dd id="coFinal">' + won(st.total) + "</dd></div>" +
       '<div class="is-earn"><dt>입금확인 시 적립</dt><dd id="coEarn">' +
-      pts(earnFor(st.eligible, st.total, 0, st.rate)) + "</dd></div>" +
+      pts(earnFor(st, 0)) + "</dd></div>" +
       "</dl>" +
       "</div>"
     );
   }
 
-  function earnHint(rate) {
-    var r = Number(rate) || 0;
-    if (r <= 0) return "지금은 적립률이 0%입니다.";
-    return "결제 금액의 " + r + "% 적립 · 적립 제외 상품은 빠지고 100원 단위로 반올림됩니다.";
+  function earnHint(st) {
+    if (st == null) return "";
+    /* 숫자(기본 적립률)로도 부를 수 있습니다. */
+    if (typeof st === "number") st = { rates: st > 0 ? [st] : [] };
+    var rates = st.rates || [];
+    if (!rates.length) return "지금은 적립률이 0%인 상품만 담겨 있습니다.";
+    var head = rates.length === 1
+      ? "결제 금액의 " + rates[0] + "% 적립"
+      : "상품별 적립률(" + rates.join(" · ") + "%)로 적립";
+    return head + " · 적립 제외 상품은 빠지고 100원 단위로 반올림됩니다.";
   }
 
   /* 입력에 따라 최종 입금액·적립 예정 포인트를 다시 계산 */
@@ -408,13 +417,13 @@
       use = maxUse;
       if (hint) hint.textContent = "보유 적립금(" + pts(st.balance || 0) + ")까지만 사용할 수 있습니다.";
     } else if (hint) {
-      hint.textContent = earnHint(st.rate);
+      hint.textContent = earnHint(st);
     }
     if (input && String(input.value) !== String(use)) input.value = String(use);
     checkoutUsePoints = use;
 
     var finalPay = Math.max(0, st.total - use);
-    var earn = earnFor(st.eligible, st.total, use, st.rate);
+    var earn = earnFor(st, use);
     if ($("coUsed")) $("coUsed").textContent = "- " + won(use);
     if ($("coFinal")) $("coFinal").textContent = won(finalPay);
     if ($("coEarn")) $("coEarn").textContent = pts(earn);

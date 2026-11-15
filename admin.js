@@ -50,6 +50,66 @@
     return String(s == null ? "" : s).replace(/[^0-9]/g, "");
   }
 
+  /* 적립률(%) 표기 — 2 / 2.5 / 3.25 */
+  function rateText(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return "0";
+    return String(Math.round(n * 100) / 100);
+  }
+
+  /* 상점 기본 적립률 (새 상품 폼 기본값) */
+  function shopRateText() {
+    var s = window.APOStore;
+    var r = s && s.pointRate ? Number(s.pointRate()) : 2;
+    return isFinite(r) && r >= 0 ? rateText(r) : "2";
+  }
+
+  /* 상품에 적히는 적립률(%) — 상품 값이 없으면 상점 기본 적립률 */
+  function productRateText(p) {
+    if (p && p.pointRate != null) return rateText(p.pointRate);
+    return shopRateText();
+  }
+
+  /* 적립금 지급 ON/OFF + 바로 옆 적립률(%) 입력칸 (한 줄) */
+  function earnFieldMarkup(boxAttr, rateAttr, on, rateValue) {
+    var checked = on !== false;
+    var val = rateValue == null || rateValue === "" ? shopRateText() : rateText(rateValue);
+    return (
+      '<div class="pf pf--wide"><span>적립금 지급 <em>(ON/OFF)</em></span>' +
+      '<div class="pf__check">' +
+      '<label class="pf__earn"><input type="checkbox" ' + (checked ? "checked " : "") + boxAttr + " />" +
+      " <span>이 상품을 살 때 적립금을 지급합니다</span></label>" +
+      '<span class="pf__rate' + (checked ? "" : " is-off") + '">' +
+      '<input type="number" inputmode="decimal" min="0" max="50" step="0.01" value="' +
+      esc(val) + '" aria-label="상품 적립률(%)" ' + rateAttr + (checked ? "" : " disabled") + " />" +
+      '<span class="pf__rate-unit">%</span>' +
+      "</span>" +
+      "</div></div>"
+    );
+  }
+
+  /* 체크박스에 맞춰 적립률 입력칸을 켜고 끕니다. */
+  function syncEarnRate(box) {
+    if (!box) return;
+    var wrap = box.closest ? box.closest(".pf__check") : null;
+    var input = wrap ? wrap.querySelector("[data-earn-rate]") : null;
+    if (!input) return;
+    var on = !!box.checked;
+    input.disabled = !on;
+    var host = input.parentNode;
+    if (host && host.classList) host.classList.toggle("is-off", !on);
+  }
+
+  /* 적립률 입력값 검사 (0 ~ 50%) — 문제가 있으면 문자열, 정상이면 숫자 */
+  function readRate(input) {
+    if (!input) return null;
+    var raw = String(input.value == null ? "" : input.value).trim();
+    if (!raw) return null;
+    var n = Number(raw);
+    if (!isFinite(n) || n < 0 || n > 50) return "상품 적립률은 0 ~ 50 사이 숫자로 입력해 주세요.";
+    return Math.round(n * 100) / 100;
+  }
+
   function phoneText(v) {
     var d = digits(v);
     if (d.length === 11) return d.slice(0, 3) + "-" + d.slice(3, 7) + "-" + d.slice(7);
@@ -416,6 +476,13 @@
     ].filter(Boolean).join(" · ");
   }
 
+  function earnBadgeMarkup(p) {
+    if (!p || p.earnPoints === false) return "";
+    var t = productRateText(p);
+    if (Number(t) <= 0) return "";
+    return '<span class="prow__earn" title="입금 확인 시 적립">적립 ' + esc(t) + "%</span>";
+  }
+
   function productRow(p) {
     var st = stockState(p);
     var fid = "photo-" + p.id;
@@ -426,6 +493,7 @@
       '<div class="prow__meta">' +
       '<b class="prow__title" data-title>' + esc(p.name) + "</b>" +
       '<span class="prow__sub" data-sub>' + esc(rowMeta(p)) + "</span>" +
+      earnBadgeMarkup(p) +
       "</div>" +
       '<span class="prow__state" data-status="' + st.cls + '">' + st.label + "</span>" +
       '<button class="btn btn--ghost btn--xs" type="button" data-edit-toggle>수정</button>' +
@@ -445,9 +513,7 @@
       '<input type="number" inputmode="numeric" min="0" data-field="price" value="' + p.price + '" /></label>' +
       '<label class="pf"><span>재고</span>' +
       '<input type="number" inputmode="numeric" min="0" max="99999" data-field="stock" value="' + p.stock + '" /></label>' +
-      '<label class="pf pf--wide"><span>적립금 지급 <em>(ON/OFF)</em></span>' +
-      '<span class="pf__check"><input type="checkbox" data-field="earn_points"' +
-      (p.earnPoints === false ? "" : " checked") + ' /> <span>이 상품을 살 때 적립금을 지급합니다</span></span></label>' +
+      earnFieldMarkup('data-earn-toggle data-field="earn_points"', 'data-earn-rate data-field="point_rate"', p.earnPoints !== false, p.pointRate) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || "") + '" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
@@ -508,8 +574,7 @@
       '<input type="number" id="npPrice" inputmode="numeric" min="0" placeholder="320000" /></label>' +
       '<label class="pf"><span>재고 <em>*</em></span>' +
       '<input type="number" id="npStock" inputmode="numeric" min="0" max="99999" value="1" /></label>' +
-      '<label class="pf pf--wide"><span>적립금 지급 <em>(ON/OFF)</em></span>' +
-      '<span class="pf__check"><input type="checkbox" id="npEarn" checked /> <span>이 상품을 살 때 적립금을 지급합니다</span></span></label>' +
+      earnFieldMarkup('id="npEarn" data-earn-toggle', 'id="npRate" data-earn-rate', true, shopRateText()) +
       '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
       '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 슈링크 O" /></label>' +
       "</div>" +
@@ -555,6 +620,12 @@
   function saveNewProduct() {
     var s = window.APOStore;
     if (!s) return;
+    var rate = readRate($("npRate"));
+    if (typeof rate === "string") {
+      toast(rate, "warn");
+      if ($("npRate")) $("npRate").focus();
+      return;
+    }
     var data = {
       name: ($("npName").value || "").trim(),
       type: $("npType").value,
@@ -565,6 +636,7 @@
       subtitle: ($("npSubtitle").value || "").trim(),
       image_url: ($("npImageUrl").value || "").trim(),
       earn_points: $("npEarn") ? !!$("npEarn").checked : true,
+      point_rate: rate,
     };
 
     if (!data.name) {
@@ -622,6 +694,7 @@
         var box = row.querySelector('[data-field="earn_points"]');
         return box ? !!box.checked : true;
       })(),
+      point_rate: readRate(row.querySelector('[data-field="point_rate"]')),
     };
   }
 
@@ -632,6 +705,12 @@
     var values = rowValues(row);
     if (!values.name) {
       toast("상품명을 비울 수 없습니다.", "warn");
+      return;
+    }
+    if (typeof values.point_rate === "string") {
+      toast(values.point_rate, "warn");
+      var rateInput = row.querySelector('[data-field="point_rate"]');
+      if (rateInput) rateInput.focus();
       return;
     }
 
@@ -649,6 +728,7 @@
       subtitle: values.subtitle,
       image_url: values.image_url,
       earn_points: values.earn_points,
+      point_rate: values.point_rate,
     })
       .then(function (p) {
         setBusy(btn, false);
@@ -1136,6 +1216,12 @@
       var input = e.target.closest("[data-photo-input]");
       if (!input) return;
       handlePhoto(input);
+    });
+
+    /* 적립금 지급 ON/OFF → 바로 옆 적립률(%) 입력칸 켜고 끄기 */
+    document.addEventListener("change", function (e) {
+      var box = e.target.closest("[data-earn-toggle]");
+      if (box) syncEarnRate(box);
     });
 
     $("orderList").addEventListener("click", function (e) {

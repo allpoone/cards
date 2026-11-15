@@ -361,6 +361,18 @@
 .prow__state[data-status="available"] { color: #6ff0bb; border-color: rgba(61, 220, 151, 0.4); background: rgba(61, 220, 151, 0.1); }
 .prow__state[data-status="low"] { color: #ffc76b; border-color: rgba(255, 176, 32, 0.4); background: rgba(255, 176, 32, 0.1); }
 .prow__state[data-status="soldout"] { color: #c2c8d4; border-color: var(--line-strong); background: rgba(255, 255, 255, 0.05); }
+.prow__earn {
+  align-self: flex-start;
+  margin-top: 3px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: #8ff7cc;
+  border: 1px solid rgba(61, 220, 151, 0.35);
+  background: rgba(61, 220, 151, 0.1);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
 .prow__edit { padding: 4px 12px 13px; border-top: 1px solid var(--line); }
 .prow__grid { display: grid; gap: 9px; padding: 10px 0; }
 @media (min-width: 720px) { .prow__grid { grid-template-columns: 2fr 1fr 1fr; } }
@@ -432,7 +444,7 @@
 .rate-edit input:disabled { opacity: 0.5; }
 .rate-edit__unit { font-size: 0.82rem; font-weight: 700; color: var(--text-dim); }
 
-.pf__check { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.pf__check { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 36px; }
 .pf__check input[type="checkbox"] {
   width: 18px;
   height: 18px;
@@ -440,6 +452,22 @@
   flex: none;
 }
 .pf__check > span { font-size: 0.78rem; color: var(--text-dim); }
+
+/* 적립금 지급 ON/OFF + 바로 옆 상품별 적립률(%) */
+.pf__earn { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.pf__earn > span { font-size: 0.78rem; color: var(--text-dim); }
+.pf__rate { display: inline-flex; align-items: center; gap: 4px; }
+.pf__rate input {
+  width: 72px;
+  height: 32px;
+  padding: 0 8px;
+  text-align: right;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.pf__rate input:disabled { opacity: 0.45; cursor: not-allowed; }
+.pf__rate.is-off .pf__rate-unit { opacity: 0.5; }
+.pf__rate-unit { font-size: 0.8rem; font-weight: 700; color: var(--text-dim); }
 
 /* 회원 목록 */
 .member-search { display: flex; gap: 6px; margin-bottom: 10px; }
