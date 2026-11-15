@@ -236,6 +236,19 @@ begin
 end;
 $$;
 grant execute on function public.admin_save_oripa_lineup(text, jsonb) to authenticated;
+create or replace function private.oripa_notify(p_message text)
+returns void
+language plpgsql
+security definer
+set search_path = private, public, pg_temp
+as $$
+begin
+  perform private.notify_discord(p_message);
+exception when others then
+  null;
+end;
+$$;
+revoke all on function private.oripa_notify(text) from public;
 create or replace function private.trg_orders_discord()
 returns trigger
 language plpgsql
@@ -259,14 +272,14 @@ begin
         into v_items
         from public.order_items i
        where i.order_id = NEW.id;
-      perform private.notify_discord(
+      perform private.oripa_notify(
         '🛒 **[새 주문]** ' || NEW.order_no || E'\n' ||
         '• 상품: ' || coalesce(v_items, '-') || E'\n' ||
         '• 주문자: ' || NEW.customer_name || ' (입금자: ' || coalesce(NEW.depositor_name, NEW.customer_name) || ')' || E'\n' ||
         '• 입금액: ' || to_char(NEW.total_amount, 'FM999,999,999') || '원'
       );
     elsif OLD.status = 'pending_payment' and NEW.status = 'paid' then
-      perform private.notify_discord(
+      perform private.oripa_notify(
         '💰 **[입금완료]** ' || NEW.order_no || E'\n' ||
         '• 주문자: ' || NEW.customer_name || ' · ' || to_char(NEW.total_amount, 'FM999,999,999') || '원' ||
         case when coalesce(NEW.earned_points, 0) != 0
@@ -274,7 +287,7 @@ begin
              else '' end
       );
     elsif OLD.status != 'cancelled' and NEW.status = 'cancelled' then
-      perform private.notify_discord(
+      perform private.oripa_notify(
         '❌ **[주문취소]** ' || NEW.order_no || ' (' || NEW.customer_name || ')'
       );
     end if;
