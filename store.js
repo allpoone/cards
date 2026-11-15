@@ -191,8 +191,9 @@
 
   /* DB에 어느 칸까지 있는지 — dbColumns 값에 따라 쓸 수 있는 기능을 정합니다. */
   var DB_FEATURES = {
-    oripa:      { earn: true,  rate: true,  hidden: true,  slots: true },
-    hidden:     { earn: true,  rate: true,  hidden: true,  slots: false },
+    oripa:       { earn: true,  rate: true,  hidden: true,  slots: true },
+    oripa_slots: { earn: true,  rate: true,  hidden: true,  slots: true },
+    hidden:      { earn: true,  rate: true,  hidden: true,  slots: false },
     point_rate: { earn: true,  rate: true,  hidden: false, slots: false },
     points:     { earn: true,  rate: false, hidden: false, slots: false },
     full:       { earn: false, rate: false, hidden: false, slots: false },
@@ -778,8 +779,9 @@
   }
 
   var PRODUCT_FIELDS = {
-    oripa:      "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden, total_slots, oripa_lineup(tier, name, qty)",
-    hidden:     "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden",
+    oripa:       "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden, total_slots, oripa_lineup(tier, name, qty)",
+    oripa_slots: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden, total_slots",
+    hidden:      "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate, is_hidden",
     point_rate: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points, point_rate",
     points: "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order, earn_points",
     full:   "id, name, type, game, edition, price, stock, status, subtitle, image_url, sort_order",
@@ -839,7 +841,7 @@
   /* 새 열(subtitle·image_url·적립률·숨김)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
   function fetchDbProducts() {
     return connectDb().then(function (c) {
-      var order = ["oripa", "hidden", "point_rate", "points", "full", "v1", "min"];
+      var order = ["oripa", "oripa_slots", "hidden", "point_rate", "points", "full", "v1", "min"];
       function attempt(i) {
         return c.from("products").select(PRODUCT_FIELDS[order[i]]).then(function (res) {
           if (res.error) {
