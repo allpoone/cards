@@ -362,7 +362,6 @@
   function detailMarkup(p) {
     var st = STATUS[p.status] || STATUS.available;
     var isOripa = p.type === "oripa";
-    var hasUrl = !!kakaoUrl();
     var rows = [];
 
     rows.push(["종목", p.game === "onepiece" ? "원피스 카드 게임" : "포켓몬 카드"]);
@@ -430,18 +429,12 @@
           p.stock + '" value="1" aria-label="수량" />' +
           '<button class="qty__btn" type="button" data-detail-step="1" aria-label="수량 늘리기">+</button>' +
           "</div>" +
-          '<button class="btn btn--gold btn--buy" type="button" data-cart-add="' + esc(p.id) + '">장바구니 담기</button>' +
+          '<div class="detail__buy-actions">' +
+          '<button class="btn btn--ghost btn--buy" type="button" data-cart-add="' + esc(p.id) + '">장바구니 담기</button>' +
+          '<button class="btn btn--gold btn--buy" type="button" data-buy-now="' + esc(p.id) + '">바로구매</button>' +
+          "</div>" +
           '<span class="detail__stock">남은 수량 ' + p.stock + esc(unitWord(p)) + "</span>" +
           "</div>") +
-      '<div class="detail__actions">' +
-      '<button class="btn btn--ghost" type="button" data-copy="' + esc(p.id) + '">정보 복사하기</button>' +
-      '<button class="btn btn--kakao" type="button" data-inquire="' + esc(p.id) + '">' +
-      (isOripa ? "오픈톡 참여 문의" : "오픈톡 구매 문의") + "</button>" +
-      "</div>" +
-      '<p class="detail__hint">복사한 정보를 오픈톡에 붙여넣으면 확인이 빠릅니다.</p>' +
-      (hasUrl
-        ? ""
-        : '<p class="detail__warn">오픈톡 링크가 아직 연결되지 않았습니다. 링크가 연결되면 이 버튼으로 바로 문의할 수 있습니다.</p>') +
       "</div></div>"
     );
   }
@@ -607,6 +600,26 @@
         } else if (res.reason === "stock" || res.reason === "soldout") {
           render();
         }
+        return;
+      }
+
+      var buyBtn = e.target.closest("[data-buy-now]");
+      if (buyBtn) {
+        var buyId = buyBtn.getAttribute("data-buy-now");
+        var qEl = $("detailQty");
+        var buyQty = qEl ? Math.max(1, Number(qEl.value) || 1) : 1;
+        var buyRes = window.APOStore
+          ? APOStore.addToCart(buyId, buyQty)
+          : { ok: false, message: "장바구니를 사용할 수 없습니다." };
+        if (!buyRes.ok) {
+          toast(buyRes.message, "warn");
+          if (buyRes.reason === "stock" || buyRes.reason === "soldout") render();
+          return;
+        }
+        closeModal();
+        /* 주문서로 바로 (로그인 필수 설정이면 openCheckout 이 로그인 모달을 띄웁니다) */
+        if (window.APOShop && APOShop.openCheckout) APOShop.openCheckout();
+        else if (window.APOShop) APOShop.openCart();
         return;
       }
 

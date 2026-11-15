@@ -1942,3 +1942,10 @@ body.modal-open { overflow: hidden; }
   .header-kakao-link { padding: 7px 9px; }
   .header-kakao-link__label { display: none; }
 }
+
+/* ── 상세: 수량 + 장바구니/바로구매 ─────────────────────── */
+.detail__buy-actions { display: flex; flex: 1 1 220px; gap: 8px; }
+.detail__buy-actions .btn { flex: 1; }
+@media (max-width: 440px) {
+  .detail__buy-actions { flex: 1 1 100%; }
+}
