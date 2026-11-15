@@ -968,14 +968,18 @@ button.badge[aria-pressed="true"]::after {
 }
 @media (min-width: 660px) {
   .detail { grid-template-columns: 260px 1fr; gap: 22px; padding: 22px; }
+  .detail__art { max-width: none; margin-inline: 0; }
 }
-.detail__art-wrap { padding: 18px 18px 0; max-width: 260px; margin-inline: auto; }
+.detail__art-wrap { padding: 18px 18px 0; }
 @media (min-width: 660px) {
   .detail__art-wrap { padding: 0; }
 }
 .detail__art {
   position: relative;
   aspect-ratio: 5 / 7;
+  width: 100%;
+  max-width: 260px;
+  margin-inline: auto;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
