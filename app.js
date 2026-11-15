@@ -680,6 +680,18 @@
         yt.hidden = true;
       }
     }
+
+    /* 헤더 오픈톡 바로가기 (cards.js 의 openKakaoUrl 을 그대로 사용) */
+    var kakao = $("headerKakao");
+    if (kakao) {
+      var url = (c.openKakaoUrl || "").trim();
+      if (url) {
+        kakao.href = url;
+        kakao.hidden = false;
+      } else {
+        kakao.hidden = true;
+      }
+    }
   }
 
   function boot() {

@@ -1771,3 +1771,174 @@ body.modal-open { overflow: hidden; }
   .site-header, .controls, .site-footer, .toast-stack, .modal__close { display: none; }
   body { background: #fff; color: #000; }
 }
+
+/* ── 회원: 헤더 계정 영역 ───────────────────────────────── */
+.header-account { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.icon-btn--auth { color: var(--gold-soft); border-color: rgba(227, 192, 122, 0.35); }
+.icon-btn--auth:hover { border-color: rgba(227, 192, 122, 0.7); background: rgba(227, 192, 122, 0.12); }
+.icon-btn__label { font-size: 0.78rem; font-weight: 750; white-space: nowrap; }
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 4px 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+.header-user[hidden] { display: none; }
+.header-user__mail {
+  max-width: 118px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--gold-soft);
+}
+@media (max-width: 1000px) { .icon-btn__label { display: none; } }
+@media (max-width: 720px) {
+  .header-account__label { display: none; }
+  .header-user__mail { max-width: 74px; }
+  .header-user__orders { display: none; }
+}
+
+/* ── 회원: 로그인 · 회원가입 모달 ───────────────────────── */
+.auth { padding: 24px 20px 26px; }
+@media (min-width: 620px) { .auth { padding: 28px 28px 30px; } }
+.auth__eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--gold);
+}
+.auth__title { margin: 0 0 6px; font-size: 1.24rem; font-weight: 850; }
+.auth__lede { margin: 0 0 14px; font-size: 0.8rem; line-height: 1.65; color: var(--text-dim); }
+.auth__notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(227, 192, 122, 0.32);
+  background: rgba(227, 192, 122, 0.1);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--gold-soft);
+}
+.auth__notice--warn { border-color: rgba(255, 176, 32, 0.4); background: rgba(255, 176, 32, 0.1); color: #ffd48a; }
+.auth__tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+.auth__tab {
+  flex: 1;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.auth__tab[aria-pressed="true"] { background: rgba(227, 192, 122, 0.9); color: #241a06; }
+.auth__form .field { margin-bottom: 12px; }
+.auth__grid { display: grid; gap: 0; }
+@media (min-width: 520px) { .auth__grid { grid-template-columns: 1fr 1fr; gap: 10px; } }
+.auth__error {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 90, 78, 0.45);
+  background: rgba(255, 90, 78, 0.12);
+  font-size: 0.78rem;
+  color: #ffb3ac;
+}
+.auth__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.auth__foot-note { font-size: 0.7rem; color: var(--text-faint); line-height: 1.5; }
+.auth__actions { display: grid; gap: 8px; margin-top: 16px; }
+
+/* ── 주문서: 회원/비회원 안내 ───────────────────────────── */
+.co__member,
+.co__guest {
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.co__member { border-color: rgba(227, 192, 122, 0.3); background: rgba(227, 192, 122, 0.08); color: var(--gold-soft); }
+.co__member span { display: block; font-size: 0.72rem; color: var(--text-faint); }
+.co__guest { display: grid; gap: 8px; justify-items: start; }
+.co__guest p { margin: 0; }
+.co__guest b { color: var(--text); }
+
+/* ── 입금 마감 카운트다운 ──────────────────────────────── */
+.expire {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 176, 32, 0.4);
+  background: rgba(255, 176, 32, 0.1);
+  font-size: 0.78rem;
+  color: #ffd48a;
+}
+.expire b { font-variant-numeric: tabular-nums; font-size: 0.9rem; color: #ffe1a6; }
+.expire__note { font-size: 0.7rem; color: rgba(255, 212, 138, 0.75); }
+.expire__icon { font-size: 0.9rem; }
+.expire--compact { margin: 0 0 10px; padding: 8px 10px; font-size: 0.74rem; }
+.expire--compact b { font-size: 0.84rem; }
+
+/* ── 위험(취소) 버튼 ───────────────────────────────────── */
+.btn--danger {
+  background: rgba(255, 90, 78, 0.12);
+  color: #ffb3ac;
+  border-color: rgba(255, 90, 78, 0.45);
+}
+.btn--danger:hover { background: rgba(255, 90, 78, 0.22); border-color: rgba(255, 90, 78, 0.65); }
+
+/* ── 헤더: 로고 옆 오픈톡 칩 ────────────────────────────── */
+.header-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.header-kakao-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--kakao);
+  color: var(--kakao-ink);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 8px 20px -12px rgba(254, 229, 0, 0.9);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.header-kakao-link:hover { background: #fff06a; transform: translateY(-1px); }
+.header-kakao-link__label { white-space: nowrap; }
+@media (max-width: 640px) {
+  .header-kakao-link { padding: 7px 9px; }
+  .header-kakao-link__label { display: none; }
+}

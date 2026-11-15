@@ -144,7 +144,7 @@
 
   /* ── 화면 상태 헬퍼 ───────────────────────────────────── */
   function anyOverlay() {
-    var ids = ["cartDrawer", "checkoutModal", "doneModal", "lookupModal", "detailModal"];
+    var ids = ["cartDrawer", "checkoutModal", "doneModal", "lookupModal", "detailModal", "authModal"];
     for (var i = 0; i < ids.length; i++) {
       var el = $(ids[i]);
       if (el && !el.hidden) return true;
@@ -167,6 +167,7 @@
     if (!el || el.hidden) return;
     el.hidden = true;
     syncLock();
+    if (!anyOverlay()) stopTicker();
     if (!anyOverlay() && lastFocus && lastFocus.focus) {
       try { lastFocus.focus(); } catch (e) { /* 무시 */ }
     }
@@ -255,7 +256,7 @@
       "<span>총 상품 금액</span>" +
       "<strong>" + won(total) + "</strong>" +
       "</div>" +
-      '<p class="cart-note">계좌이체 주문 · 입금 확인 후 순차 발송됩니다.</p>' +
+      '<p class="cart-note">계좌이체 주문 · 입금 확인 후 순차 발송됩니다.<br />주문 후 <b>10분 내</b> 미입금 시 자동 취소됩니다.</p>' +
       '<button class="btn btn--gold btn--block" type="button" data-go-checkout>주문하기</button>';
   }
 
@@ -323,15 +324,48 @@
       return;
     }
 
+    var user = currentUser();
+    var mustLogin = s.requireLogin ? s.requireLogin() : false;
+
+    /* 사장님이 [회원 로그인 필수] 로 바꿔 두었으면 먼저 로그인 */
+    if (mustLogin && !user) {
+      closeEl($("cartDrawer"));
+      openAuth("login", {
+        notice: "이 쇼핑몰은 회원만 주문할 수 있습니다. 로그인 또는 회원가입 후 주문해 주세요.",
+        next: "checkout",
+      });
+      return;
+    }
+
     var total = s.cartTotal();
-    var buyer = savedBuyer();
+    var saved = savedBuyer();
+    var meta = user && s.userMeta ? s.userMeta() : {};
+    var ship = (meta && meta.shipping) || {};
+    /* 로그인 회원은 계정에 저장된 정보 → 없으면 이 브라우저에 저장된 정보 */
+    var buyer = {
+      name: (meta && meta.name) || saved.name || "",
+      phone: meta && meta.phone ? phoneText(meta.phone) : (saved.phone || ""),
+      postcode: ship.postcode || saved.postcode || "",
+      address: ship.address || saved.address || "",
+      address_detail: ship.address_detail || saved.address_detail || "",
+    };
     var demo = s.isDemo();
+
+    var accountLine = user
+      ? '<p class="co__member">' + esc(userLabel(user)) + "님 계정으로 주문합니다. <span>" + esc(user.email || "") + "</span></p>"
+      : '<div class="co__guest">' +
+        '<p>지금은 <b>비회원</b>으로 주문합니다. 로그인하면 배송지가 자동으로 채워지고 [내 주문]에서 내역을 볼 수 있습니다.</p>' +
+        '<button class="btn btn--ghost btn--xs" type="button" data-auth-open="login" data-auth-next="checkout">로그인 / 회원가입 후 주문하기</button>' +
+        "</div>";
+
+    var submitLabel = user ? "주문하기 · " + won(total) : "비회원으로 주문하기 · " + won(total);
 
     $("checkoutBody").innerHTML =
       '<div class="co">' +
       '<p class="co__eyebrow">ACCOUNT TRANSFER ORDER</p>' +
       '<h2 class="co__title" id="checkoutTitle">계좌이체 주문서</h2>' +
       '<p class="co__lede">주문서를 보내면 입금 계좌와 주문번호가 나옵니다. 입금 확인 후 [입금완료]로 상태가 바뀝니다.</p>' +
+      accountLine +
       (demo
         ? '<p class="co__demo">DB 연동 전 테스트 모드입니다. 주문은 이 브라우저에만 저장되고, 사장님 페이지(admin.html)에서 확인할 수 있습니다.</p>'
         : "") +
@@ -382,10 +416,10 @@
       '<div class="co-err" id="checkoutError" hidden></div>' +
 
       '<div class="co-actions">' +
-      '<button class="btn btn--gold btn--block" type="submit" id="checkoutSubmit">계좌이체로 주문하기 · ' + won(total) + "</button>" +
+      '<button class="btn btn--gold btn--block" type="submit" id="checkoutSubmit">' + esc(submitLabel) + "</button>" +
       '<button class="btn btn--ghost btn--block" type="button" data-close-checkout>장바구니로 돌아가기</button>' +
       "</div>" +
-      '<p class="co__agree">주문을 넣으면 입금대기 상태로 접수되며, 입금 확인 후 발송이 시작됩니다.</p>' +
+      '<p class="co__agree">주문을 넣으면 입금대기 상태로 접수되며, <b>10분 안에 입금하지 않으면 자동으로 취소</b>됩니다(재고는 다시 판매됩니다). 입금 확인 후 발송이 시작됩니다.</p>' +
       "</form>" +
       "</div>";
 
@@ -470,6 +504,8 @@
     s.placeOrder(form).then(function (order) {
       busy = false;
       saveBuyer(form);
+      /* 로그인 회원이면 최근 배송지를 계정에도 저장 (다음 주문 때 자동 입력) */
+      if (currentUser() && s.saveShipping) s.saveShipping(form);
       closeEl($("checkoutModal"));
       closeCart();
       renderCart();
@@ -478,7 +514,7 @@
       busy = false;
       if (btn) {
         btn.disabled = false;
-        btn.textContent = btn.dataset.label || "계좌이체로 주문하기";
+        btn.textContent = btn.dataset.label || "주문하기";
       }
       var box = $("checkoutError");
       if (box) {
@@ -491,6 +527,110 @@
         if (err.code === "EMPTY_CART") closeEl($("checkoutModal"));
       }
     });
+  }
+
+  /* ── 입금 마감 (10분) 카운트다운 ─────────────────────── */
+  var tickHandle = null;
+  var expiring = false;
+
+  function mmss(ms) {
+    var t = Math.max(0, Math.floor(ms / 1000));
+    var m = Math.floor(t / 60);
+    var s = t % 60;
+    return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function expiryMarkup(order, compact) {
+    if (!order || order.status !== "pending_payment") return "";
+    var s = store();
+    var at = s && s.expiresAtOf ? s.expiresAtOf(order) : 0;
+    if (!at) return "";
+    return (
+      '<p class="expire' + (compact ? " expire--compact" : "") + '">' +
+      '<span class="expire__icon" aria-hidden="true">⏰</span>' +
+      '<span>입금 마감 <b data-expire-at="' + at + '">' + mmss(at - Date.now()) + "</b> 남음</span>" +
+      '<span class="expire__note">10분 내 미입금 시 자동 취소</span>' +
+      "</p>"
+    );
+  }
+
+  function paintCountdowns() {
+    var nodes = document.querySelectorAll("[data-expire-at]");
+    if (!nodes.length) {
+      stopTicker();
+      return;
+    }
+    var now = Date.now();
+    var justExpired = false;
+
+    for (var i = 0; i < nodes.length; i++) {
+      var at = Number(nodes[i].getAttribute("data-expire-at")) || 0;
+      var left = at - now;
+      if (left <= 0) {
+        nodes[i].textContent = "00:00";
+        if (!nodes[i].getAttribute("data-expired")) {
+          nodes[i].setAttribute("data-expired", "1");
+          justExpired = true;
+        }
+      } else {
+        nodes[i].textContent = mmss(left);
+      }
+    }
+
+    if (justExpired && !expiring) {
+      expiring = true;
+      onExpired();
+    }
+  }
+
+  function startTicker() {
+    paintCountdowns();
+    if (tickHandle) return;
+    tickHandle = setInterval(paintCountdowns, 1000);
+  }
+
+  function stopTicker() {
+    if (!tickHandle) return;
+    clearInterval(tickHandle);
+    tickHandle = null;
+  }
+
+  /* 10분이 지나면 서버에 정리를 요청하고 화면을 새로 고칩니다. */
+  function onExpired() {
+    var s = store();
+    if (!s) {
+      expiring = false;
+      return;
+    }
+    s.expireNow()
+      .then(function (res) {
+        if (res && res.expired) {
+          toast("입금 시간(10분)이 지나 주문이 자동 취소되었습니다. 재고는 다시 판매됩니다.", "warn");
+          renderCart();
+        }
+        if (!$("lookupModal").hidden) runLookup();
+      })
+      .catch(function () { /* 무시 */ })
+      .then(function () { expiring = false; });
+  }
+
+  function askCancel(orderNo, name, phone) {
+    var s = store();
+    if (!s) return;
+    var ok = window.confirm(
+      orderNo + " 주문을 취소할까요?\n취소하면 담았던 상품의 재고가 바로 되돌아갑니다."
+    );
+    if (!ok) return;
+
+    s.cancelMyOrder(orderNo, name, phone)
+      .then(function () {
+        toast("주문을 취소했습니다. 재고가 복구되었습니다.", "ok");
+        renderCart();
+        if (!$("lookupModal").hidden) runLookup();
+      })
+      .catch(function (err) {
+        toast((err && err.message) || "주문을 취소하지 못했습니다.", "warn");
+      });
   }
 
   /* ── 주문 완료 · 입금 안내 ────────────────────────────── */
@@ -516,6 +656,8 @@
       statusPill(order.status) +
       "</div>" +
       "</div>" +
+
+      expiryMarkup(order, false) +
 
       bankMarkup(false) +
 
@@ -553,6 +695,7 @@
 
     if (!s) return;
     openEl($("doneModal"));
+    startTicker();
     var ok = $("doneModal").querySelector("[data-close-done]");
     if (ok) ok.focus();
   }
@@ -584,16 +727,26 @@
   }
 
   function openLookup(orderNo) {
-    lookupMode = "no";
+    var s = store();
+    var user = currentUser();
+    lookupMode = user ? "me" : "no";
+
     $("lookupBody").innerHTML =
       '<div class="lookup">' +
-      '<h2 class="lookup__title" id="lookupTitle">내 주문 조회</h2>' +
-      '<p class="lookup__lede">주문번호 또는 주문자명 + 연락처로 주문 상태를 확인하세요.</p>' +
+      '<h2 class="lookup__title" id="lookupTitle">' + (user ? "내 주문" : "내 주문 조회") + "</h2>" +
+      '<p class="lookup__lede">' +
+      (user
+        ? esc(userLabel(user)) + "님으로 주문한 내역입니다."
+        : "주문번호 또는 주문자명 + 연락처로 주문 상태를 확인하세요.") +
+      "</p>" +
       '<div class="lookup__tabs" role="group" aria-label="조회 방법">' +
-      '<button class="lookup__tab" type="button" data-lookup-mode="no" aria-pressed="true">주문번호로 조회</button>' +
+      (user
+        ? '<button class="lookup__tab" type="button" data-lookup-mode="me" aria-pressed="true">내 주문</button>'
+        : "") +
+      '<button class="lookup__tab" type="button" data-lookup-mode="no" aria-pressed="' + (user ? "false" : "true") + '">주문번호로 조회</button>' +
       '<button class="lookup__tab" type="button" data-lookup-mode="info" aria-pressed="false">연락처 + 주문자명</button>' +
       "</div>" +
-      '<form id="lookupForm" class="lookup__form" novalidate>' +
+      '<form id="lookupForm" class="lookup__form" novalidate' + (user ? " hidden" : "") + ">" +
       lookupIdentityMarkup() +
       '<button class="btn btn--gold btn--block" type="submit" id="lookupSubmit">조회하기</button>' +
       "</form>" +
@@ -602,8 +755,11 @@
 
     $("lookupForm").addEventListener("submit", runLookup);
     openEl($("lookupModal"));
+    startTicker();
 
-    if (orderNo) {
+    if (user) {
+      runLookup();
+    } else if (orderNo) {
       $("lookupNo").value = orderNo;
       setTimeout(function () { runLookup(); }, 80);
     } else {
@@ -638,6 +794,7 @@
       statusPill(o.status) +
       "</header>" +
       '<p class="order-card__desc">' + esc(st.desc) + "</p>" +
+      expiryMarkup(o, true) +
       timeline +
       '<ul class="order-card__items">' +
       (o.items || []).map(function (it) {
@@ -654,6 +811,11 @@
       "</dl>" +
       '<div class="order-card__actions">' +
       '<button class="btn btn--ghost btn--xs" type="button" data-copy="order" data-order-no="' + esc(o.order_no) + '">주문번호 복사</button>' +
+      (o.status === "pending_payment"
+        ? '<button class="btn btn--danger btn--xs" type="button" data-cancel-order="' + esc(o.order_no) +
+          '" data-cancel-name="' + esc(o.customer_name) + '" data-cancel-phone="' + esc(digits(o.phone)) +
+          '">주문 취소</button>'
+        : "") +
       "</div>" +
       "</article>"
     );
@@ -666,6 +828,33 @@
 
     var results = $("lookupResults");
     var query = { orderNo: "", name: "", phone: "" };
+
+    /* 로그인 회원: 주문번호 없이 내 주문 전체 */
+    if (lookupMode === "me") {
+      results.innerHTML = '<p class="lookup__loading">불러오는 중…</p>';
+      s.myOrders()
+        .then(function (list) {
+          if (!list || !list.length) {
+            results.innerHTML =
+              '<div class="lookup__empty">' +
+              "<p>아직 주문 내역이 없습니다.</p>" +
+              '<p class="lookup__empty-desc">이 계정으로 주문하면 이곳에 바로 표시됩니다. 다른 이름·연락처로 주문했다면 [주문번호로 조회]를 사용해 주세요.</p>' +
+              '<button class="btn btn--ghost btn--sm" type="button" data-close-lookup>상품 보러 가기</button>' +
+              "</div>";
+            return;
+          }
+          results.innerHTML =
+            '<p class="lookup__count">' + list.length + "건의 주문을 찾았습니다.</p>" +
+            list.map(orderCard).join("");
+        })
+        .catch(function (err) {
+          results.innerHTML =
+            '<p class="lookup__hint">' +
+            esc((err && err.message) || "주문 내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.") +
+            "</p>";
+        });
+      return;
+    }
 
     if (lookupMode === "no") {
       query.orderNo = ($("lookupNo").value || "").trim();
@@ -704,6 +893,241 @@
     });
   }
 
+  /* ============================================================
+     회원 — 로그인 · 회원가입 · 계정 표시
+     ============================================================ */
+  var authMode = "login";
+  var authNotice = "";
+  var authNext = "";
+  var authBusy = false;
+
+  function authSdk() {
+    return store();
+  }
+
+  function currentUser() {
+    var s = authSdk();
+    return s && s.user ? s.user() : null;
+  }
+
+  function userLabel(user) {
+    if (!user) return "";
+    var meta = user.user_metadata || {};
+    if (meta.name) return String(meta.name);
+    var mail = String(user.email || "");
+    return mail ? mail.split("@")[0] : "";
+  }
+
+  /* 헤더: 로그인 전에는 [로그인], 로그인 후에는 이메일 + [내 주문] + [로그아웃] */
+  function renderAccount() {
+    var user = currentUser();
+    var openBtn = $("authOpenBtn");
+    var box = $("headerUser");
+    var mail = $("headerUserMail");
+
+    if (openBtn) openBtn.hidden = !!user;
+    if (box) box.hidden = !user;
+    if (mail && user) {
+      mail.textContent = userLabel(user);
+      mail.title = String(user.email || "");
+    }
+  }
+
+  function authPaneMarkup() {
+    var s = authSdk();
+    var user = currentUser();
+    var demo = s && s.isDemo ? s.isDemo() : false;
+
+    if (user) {
+      var meta = user.user_metadata || {};
+      return (
+        '<div class="auth">' +
+        '<p class="auth__eyebrow">MY ACCOUNT</p>' +
+        '<h2 class="auth__title" id="authTitle">' + esc(userLabel(user)) + "님</h2>" +
+        '<p class="auth__lede">' + esc(user.email || "") + "<br />" +
+        (meta.phone ? "연락처 " + esc(phoneText(meta.phone)) : "연락처를 등록하면 주문서가 자동으로 채워집니다.") +
+        "</p>" +
+        '<div class="auth__actions">' +
+        '<button class="btn btn--gold btn--block" type="button" data-open-lookup>내 주문 보기</button>' +
+        '<button class="btn btn--ghost btn--block" type="button" data-auth-logout>로그아웃</button>' +
+        '<button class="btn btn--text" type="button" data-close-auth>닫기</button>' +
+        "</div>" +
+        "</div>"
+      );
+    }
+
+    var isSignup = authMode === "signup";
+
+    return (
+      '<div class="auth">' +
+      '<p class="auth__eyebrow">MEMBER</p>' +
+      '<h2 class="auth__title" id="authTitle">' + (isSignup ? "회원가입" : "로그인") + "</h2>" +
+      '<p class="auth__lede">로그인하면 주문할 때 배송지가 자동으로 채워지고, [내 주문]에서 주문 내역을 바로 볼 수 있습니다.</p>' +
+      (authNotice ? '<p class="auth__notice">' + esc(authNotice) + "</p>" : "") +
+      (demo
+        ? '<p class="auth__notice auth__notice--warn">지금은 DB 연동 전 테스트 모드입니다. 회원 로그인 대신 비회원 주문으로 진행해 주세요.</p>'
+        : "") +
+      '<div class="auth__tabs" role="group" aria-label="로그인 또는 회원가입">' +
+      '<button class="auth__tab" type="button" data-auth-mode="login" aria-pressed="' + (isSignup ? "false" : "true") + '">로그인</button>' +
+      '<button class="auth__tab" type="button" data-auth-mode="signup" aria-pressed="' + (isSignup ? "true" : "false") + '">회원가입</button>' +
+      "</div>" +
+      '<form id="authForm" class="auth__form" novalidate>' +
+      '<div class="field">' +
+      '<label for="authEmail">이메일 <span class="req">*</span></label>' +
+      '<input id="authEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="80" placeholder="name@example.com" />' +
+      '<p class="field__err" data-err="authEmail" hidden></p>' +
+      "</div>" +
+      '<div class="field">' +
+      '<label for="authPassword">비밀번호 <span class="req">*</span></label>' +
+      '<input id="authPassword" type="password" autocomplete="' + (isSignup ? "new-password" : "current-password") + '" maxlength="72" placeholder="' + (isSignup ? "6자 이상" : "비밀번호") + '" />' +
+      '<p class="field__err" data-err="authPassword" hidden></p>' +
+      "</div>" +
+      (isSignup
+        ? '<div class="auth__grid">' +
+          '<div class="field">' +
+          '<label for="authName">이름 <span class="opt">(선택)</span></label>' +
+          '<input id="authName" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" />' +
+          "</div>" +
+          '<div class="field">' +
+          '<label for="authPhone">연락처 <span class="opt">(선택)</span></label>' +
+          '<input id="authPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" />' +
+          "</div>" +
+          "</div>" +
+          '<p class="field__hint">이름·연락처는 주문서 자동 입력에 쓰입니다. 나중에 바꿀 수 있습니다.</p>'
+        : "") +
+      '<p class="auth__error" id="authError" role="alert" hidden></p>' +
+      '<button class="btn btn--gold btn--block" type="submit" id="authSubmit"' + (demo ? " disabled" : "") + ">" +
+      (isSignup ? "가입하기" : "로그인") +
+      "</button>" +
+      "</form>" +
+      '<div class="auth__foot">' +
+      '<button class="btn btn--ghost btn--xs" type="button" data-auth-guest>비회원으로 주문하기</button>' +
+      '<span class="auth__foot-note">' +
+      (isSignup ? "이메일 확인이 켜져 있으면 인증 메일이 발송됩니다." : "비밀번호를 잊으면 사장님께 오픈톡으로 문의해 주세요.") +
+      "</span>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderAuth() {
+    var body = $("authBody");
+    if (!body) return;
+    body.innerHTML = authPaneMarkup();
+    var first = authMode === "signup" ? $("authEmail") : $("authEmail");
+    if (first && !currentUser()) setTimeout(function () { try { first.focus(); } catch (e) {} }, 60);
+  }
+
+  function openAuth(mode, opts) {
+    opts = opts || {};
+    if (currentUser()) {
+      authMode = "login";
+      authNotice = "";
+      authNext = "";
+      renderAuth();
+      openEl($("authModal"));
+      return;
+    }
+    authMode = mode === "signup" ? "signup" : "login";
+    authNotice = opts.notice || "";
+    authNext = opts.next || "";
+    renderAuth();
+    openEl($("authModal"));
+  }
+
+  function setAuthMode(mode) {
+    authMode = mode === "signup" ? "signup" : "login";
+    authNotice = "";
+    renderAuth();
+  }
+
+  function setAuthError(msg) {
+    var box = $("authError");
+    if (!box) return;
+    box.textContent = msg || "";
+    box.hidden = !msg;
+  }
+
+  function setAuthBusy(on, label) {
+    authBusy = !!on;
+    var btn = $("authSubmit");
+    if (!btn) return;
+    btn.disabled = !!on;
+    if (on) {
+      btn.dataset.label = btn.textContent;
+      btn.textContent = label || "처리 중…";
+    } else if (btn.dataset.label) {
+      btn.textContent = btn.dataset.label;
+    }
+  }
+
+  function afterAuth(res, isSignup) {
+    setAuthBusy(false);
+    renderAccount();
+
+    if (res && res.needsConfirm) {
+      authMode = "login";
+      authNotice = res.message;
+      renderAuth();
+      var box = $("authError");
+      if (box) {
+        box.textContent = res.message;
+        box.hidden = false;
+      }
+      return;
+    }
+
+    var user = (res && res.user) || currentUser();
+    closeEl($("authModal"));
+    toast((userLabel(user) || "회원") + "님 " + (isSignup ? "환영합니다!" : "로그인했습니다."), "ok");
+
+    if (authNext === "checkout") openCheckout();
+    authNext = "";
+  }
+
+  function submitAuth(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (authBusy) return;
+    var s = authSdk();
+    if (!s) return;
+
+    var email = ($("authEmail") ? $("authEmail").value : "").trim();
+    var pw = $("authPassword") ? $("authPassword").value : "";
+    var isSignup = authMode === "signup";
+
+    setAuthError("");
+    if (!email) { setAuthError("이메일을 입력해 주세요."); if ($("authEmail")) $("authEmail").focus(); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setAuthError("이메일 형식을 확인해 주세요."); return; }
+    if (!pw) { setAuthError("비밀번호를 입력해 주세요."); if ($("authPassword")) $("authPassword").focus(); return; }
+    if (isSignup && pw.length < 6) { setAuthError("비밀번호는 6자 이상으로 입력해 주세요."); return; }
+
+    var name = $("authName") ? ($("authName").value || "").trim() : "";
+    var phone = $("authPhone") ? digits($("authPhone").value) : "";
+
+    setAuthBusy(true, isSignup ? "가입 중…" : "로그인 중…");
+
+    var task = isSignup
+      ? s.signUpUser(email, pw, { name: name, phone: phone })
+      : s.signInUser(email, pw);
+
+    task.then(function (res) {
+      afterAuth(res, isSignup);
+    }).catch(function (err) {
+      setAuthBusy(false);
+      setAuthError((err && err.message) || (isSignup ? "가입하지 못했습니다." : "로그인하지 못했습니다."));
+    });
+  }
+
+  function doLogoutUser() {
+    var s = authSdk();
+    if (!s) return;
+    s.signOutUser().then(function () {
+      renderAccount();
+      closeEl($("authModal"));
+      toast("로그아웃했습니다.", "ok");
+    });
+  }
+
   /* ── 이벤트 연결 ──────────────────────────────────────── */
   function setLookupMode(mode) {
     lookupMode = mode;
@@ -714,6 +1138,12 @@
     var panes = document.querySelectorAll(".lookup__pane");
     for (var j = 0; j < panes.length; j++) {
       panes[j].hidden = panes[j].getAttribute("data-pane") !== mode;
+    }
+    var form = $("lookupForm");
+    if (form) form.hidden = mode === "me";
+    if (mode === "me") {
+      runLookup();
+      return;
     }
     var focusEl = mode === "no" ? $("lookupNo") : $("lookupName");
     if (focusEl) focusEl.focus();
@@ -732,8 +1162,38 @@
         e.preventDefault();
         var btn = t.closest("[data-open-lookup]");
         closeEl($("doneModal"));
+        closeEl($("authModal"));
         closeCart();
         openLookup(btn.getAttribute("data-open-lookup") || "");
+        return;
+      }
+
+      /* ── 회원 ── */
+      var authOpen = t.closest("[data-auth-open]");
+      if (authOpen) {
+        e.preventDefault();
+        closeEl($("checkoutModal"));
+        openAuth(authOpen.getAttribute("data-auth-open"), {
+          next: authOpen.getAttribute("data-auth-next") || "",
+        });
+        return;
+      }
+      var authTab = t.closest("[data-auth-mode]");
+      if (authTab) {
+        e.preventDefault();
+        setAuthMode(authTab.getAttribute("data-auth-mode"));
+        return;
+      }
+      if (t.closest("[data-auth-guest]")) {
+        e.preventDefault();
+        var wasNext = authNext;
+        closeEl($("authModal"));
+        if (wasNext === "checkout") openCheckout();
+        return;
+      }
+      if (t.closest("[data-auth-logout]")) {
+        e.preventDefault();
+        doLogoutUser();
         return;
       }
       if (t.closest("[data-close-cart]")) {
@@ -790,6 +1250,17 @@
         setLookupMode(modeBtn.getAttribute("data-lookup-mode"));
         return;
       }
+
+      var cancelBtn = t.closest("[data-cancel-order]");
+      if (cancelBtn) {
+        e.preventDefault();
+        askCancel(
+          cancelBtn.getAttribute("data-cancel-order"),
+          cancelBtn.getAttribute("data-cancel-name") || "",
+          cancelBtn.getAttribute("data-cancel-phone") || ""
+        );
+        return;
+      }
     });
 
     $("checkoutModal").addEventListener("click", function (e) {
@@ -805,6 +1276,17 @@
     $("lookupModal").addEventListener("click", function (e) {
       if (e.target.closest("[data-close-lookup]")) closeEl($("lookupModal"));
     });
+    $("authModal").addEventListener("click", function (e) {
+      if (e.target.closest("[data-close-auth]")) closeEl($("authModal"));
+    });
+    $("authModal").addEventListener("submit", submitAuth);
+
+    if ($("authOpenBtn")) {
+      $("authOpenBtn").addEventListener("click", function () { openAuth("login", {}); });
+    }
+    if ($("logoutUserBtn")) {
+      $("logoutUserBtn").addEventListener("click", doLogoutUser);
+    }
     $("cartDrawer").addEventListener("click", function (e) {
       if (e.target.closest("[data-close-cart]")) closeEl($("cartDrawer"));
     });
@@ -820,6 +1302,7 @@
 
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
+      if (!$("authModal").hidden) { closeEl($("authModal")); return; }
       if (!$("checkoutModal").hidden) {
         closeEl($("checkoutModal"));
         var s3 = store();
@@ -834,6 +1317,8 @@
     window.addEventListener("apo:cart", renderCart);
     window.addEventListener("apo:products", renderCart);
     window.addEventListener("apo:orders", renderCart);
+    window.addEventListener("apo:auth", renderAccount);
+    window.addEventListener("apo:settings", renderAccount);
   }
 
   /* ── 테스트 모드 안내 / 초기 렌더 ─────────────────────── */
@@ -862,8 +1347,13 @@
     if (!s) return;
     s.init().then(function () {
       renderModeBanner();
+      renderAccount();
       renderCart();
       wire();
+      /* 이미 로그인된 세션이 있으면 헤더에 계정을 바로 표시 */
+      if (s.loadSession) {
+        s.loadSession().then(function () { renderAccount(); });
+      }
     });
   }
 

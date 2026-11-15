@@ -9,8 +9,8 @@
 <link rel="icon" type="image/png" sizes="160x160" href="logo-160.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160129" />
-<link rel="stylesheet" href="admin.css?v=202611160129" />
+<link rel="stylesheet" href="styles.css?v=202611160142" />
+<link rel="stylesheet" href="admin.css?v=202611160142" />
 </head>
 <body class="admin-body">
 
@@ -107,6 +107,26 @@
       </div>
     </section>
 
+    <section class="panel" id="settingsPanel">
+      <header class="panel__head">
+        <div>
+          <h2 class="panel__title">주문 설정</h2>
+          <p class="panel__desc">손님이 로그인 없이 주문할 수 있는지 정합니다. 바꾸면 손님 화면에 바로 적용됩니다.</p>
+        </div>
+      </header>
+      <div class="set-row">
+        <div class="set-row__text">
+          <b id="requireLoginTitle">비로그인(게스트) 주문 허용</b>
+          <p id="requireLoginDesc">지금은 누구나 로그인 없이 주문할 수 있습니다. 회원만 주문하게 하려면 스위치를 켜세요.</p>
+        </div>
+        <button class="switch" type="button" id="requireLoginSwitch" role="switch" aria-checked="false" aria-labelledby="requireLoginTitle" disabled>
+          <span class="switch__knob" aria-hidden="true"></span>
+          <span class="switch__state" id="requireLoginState">OFF</span>
+        </button>
+      </div>
+      <p class="set-hint" id="requireLoginHint" hidden></p>
+    </section>
+
     <section class="panel" id="ordersPanel">
       <header class="panel__head">
         <div>
@@ -148,11 +168,15 @@
     <section class="panel" id="stockPanel">
       <header class="panel__head">
         <div>
-          <h2 class="panel__title">재고 관리</h2>
-          <p class="panel__desc">수량을 고치고 [저장]을 누르면 사이트에 바로 반영됩니다. 0이 되면 자동으로 품절 처리됩니다.</p>
+          <h2 class="panel__title">상품 관리</h2>
+          <p class="panel__desc">상품명·가격·재고·사진을 고치고 [저장]을 누르면 손님 사이트에 바로 반영됩니다. 재고가 0이면 자동 품절 처리됩니다.</p>
         </div>
-        <button class="btn btn--ghost btn--sm" type="button" id="stockReloadBtn">재고 새로고침</button>
+        <div class="panel__actions">
+          <button class="btn btn--gold btn--sm" type="button" id="newProductBtn">+ 새 상품 추가</button>
+          <button class="btn btn--ghost btn--sm" type="button" id="stockReloadBtn">새로고침</button>
+        </div>
       </header>
+      <div class="new-product" id="newProductForm" hidden></div>
       <div class="stock-list" id="stockList"></div>
     </section>
 
@@ -164,8 +188,8 @@
 
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160129"></script>
-<script src="store.js?v=202611160129"></script>
-<script src="admin.js?v=202611160129"></script>
+<script src="cards.js?v=202611160142"></script>
+<script src="store.js?v=202611160142"></script>
+<script src="admin.js?v=202611160142"></script>
 </body>
 </html>

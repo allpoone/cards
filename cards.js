@@ -26,7 +26,7 @@ const SITE_CONFIG = {
      모든 [오픈톡 문의] 버튼이 바로 연결됩니다.
      예) openKakaoUrl: "https://open.kakao.com/o/abcd1234",
      비워 두면 "아직 연결되지 않았습니다" 안내가 뜹니다. */
-  openKakaoUrl: "",
+  openKakaoUrl: "https://open.kakao.com/o/sEmLjgXi",
 
   /* ---- 유튜브 라이브 링크 ----------------------------------------
      채널/라이브 주소를 넣으면 상단에 [유튜브 라이브] 버튼이 생깁니다.
@@ -41,7 +41,7 @@ const SITE_CONFIG = {
   bankAccount: {
     bank: "케이뱅크",
     number: "100176120105",
-    holder: "",
+    holder: "이준모",
   },
 
   /* ---- 계좌이체 안내 문구 ---------------------------------------- */

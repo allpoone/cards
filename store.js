@@ -13,6 +13,16 @@
      로그인한 계정의 app_metadata.role === 'admin' 만 관리자로 인정합니다.
      (공개 코드에는 어떤 비밀번호·PIN 도 두지 않습니다.)
    · 테스트 모드: 화면 잠금만 하고, 같은 브라우저 안에서만 열립니다.
+
+   ── 상품 ───────────────────────────────────────────────
+   · DB 모드: products 테이블이 기준입니다. 이름·가격·재고·상태·설명·사진은 DB 값이
+     우선하고, cards.js 는 카드 아트(색·아이콘) 같은 디자인 값만 보탭니다.
+     그래서 cards.js 에 없는 "DB에만 있는 상품"도 그대로 카드로 나옵니다.
+   · 테스트 모드: cards.js + 이 브라우저(localStorage)에 저장한 수정값.
+
+   ── 손님 회원 ─────────────────────────────────────────
+   · Supabase Auth(이메일 + 비밀번호) 회원가입·로그인. 주문에 user_id 가 자동 저장됩니다.
+   · 사장님 설정(shop_public_settings)으로 비로그인 주문 허용 / 로그인 필수 전환.
    ============================================================ */
 
 (function () {
@@ -36,8 +46,16 @@
   var db = null;          // supabase client
   var mode = "demo";      // "demo" | "db"
   var dbError = "";
-  var productState = {};   // id -> { stock, status }
+  var productState = {};   // id -> { name?, price?, stock, status }  (테스트 모드 로컬 수정값)
+  var dbRows = [];         // DB products 행 (DB 모드 기준)
+  var dbRowById = {};
+  var extraProducts = [];  // 테스트 모드에서 추가한 상품
+  var extraById = {};
+  var dbColumns = "none";  // "full" | "v1" | "min" | "none"
+  var settings = { requireLogin: false, ready: false };  // 사장님 공개 설정
   var readyPromise = null;
+
+  var IMAGE_BUCKET = "product-images";
 
   /* ── 작은 유틸 ────────────────────────────────────────── */
   function won(n) {
@@ -116,7 +134,7 @@
   }
 
   function saveProductState() {
-    writeJson(LS_PRODUCTS, { seed: baseSeed(), products: productState });
+    writeJson(LS_PRODUCTS, { seed: baseSeed(), products: productState, extra: extraProducts });
   }
 
   function loadProductState() {
@@ -127,6 +145,11 @@
       /* cards.js 의 재고를 손봤거나 처음 방문 → 카드 값으로 다시 시작 */
       productState = seedState();
     }
+    /* 테스트 모드에서 사장님이 추가한 상품 */
+    extraProducts = saved && Array.isArray(saved.extra) ? saved.extra : [];
+    extraById = {};
+    extraProducts.forEach(function (r) { if (r && r.id) extraById[r.id] = r; });
+
     /* cards.js 에 새로 추가된 상품 보충 */
     var seeded = false;
     BASE.forEach(function (p) {
@@ -138,35 +161,129 @@
     if (seeded) saveProductState();
   }
 
-  /* 화면에 보여줄 상품 (카드 디자인 값 + 실시간 재고) */
-  function view(p) {
-    if (!p) return null;
-    var st = productState[p.id] || { stock: initialStock(p), status: p.status || "available" };
-    var stock = Math.max(0, Math.floor(Number(st.stock) || 0));
-    var status = statusFromStock(stock, st.status || p.status);
-    var out = {};
-    for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) out[k] = p[k];
-    out.stock = stock;
-    out.status = status;
-    out.soldOut = stock <= 0;
-    /* 기존 화면 함수들이 쓰는 잔여 수량 필드도 같이 맞춰 줍니다. */
-    if (p.type === "oripa") out.remainingUnits = stock;
-    else out.remaining = stock;
-    return out;
-  }
-
-  function products() {
-    return BASE.map(view).filter(Boolean);
-  }
-
   function findBase(id) {
     for (var i = 0; i < BASE.length; i++) if (BASE[i].id === id) return BASE[i];
     return null;
   }
 
+  function copyObj(o) {
+    var out = {};
+    for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) out[k] = o[k];
+    return out;
+  }
+
+  /* DB에만 있는 상품의 기본 카드 아트 (종목·유형으로 색을 정합니다) */
+  function defaultArt(type, game) {
+    if (game === "onepiece") {
+      return { c1: "#2a0b10", c2: "#b3232f", accent: "#ffb3ba", glyph: type === "oripa" ? "🏴‍☠️" : type === "single" ? "🃏" : "📦" };
+    }
+    return { c1: "#150d33", c2: "#7c3aed", accent: "#d5c8ff", glyph: type === "oripa" ? "🎰" : type === "single" ? "🃏" : "📦" };
+  }
+
+  /* 상품 한 건의 원본(카드 디자인 + DB 최신값) */
+  function descriptor(id) {
+    var base = findBase(id);
+    var row = mode === "db" ? dbRowById[id] : (dbRowById[id] || extraById[id]);
+    if (mode === "db" && !row) return null;   // DB에 없으면 진열하지 않습니다
+    if (!base && !row) return null;
+
+    var out = base ? copyObj(base) : {};
+    out.id = id;
+
+    if (row) {
+      if (row.name) out.name = row.name;
+      if (row.type) out.type = row.type;
+      if (row.game) out.game = row.game;
+      if (typeof row.price === "number") out.price = row.price;
+      out.dbStock = row.stock;
+      out.dbStatus = row.status;
+      if (row.subtitle) { out.series = row.subtitle; out.subtitle = row.subtitle; }
+      if (row.image_url) out.image = row.image_url;
+      out.imageUrl = row.image_url || "";
+    }
+
+    if (!out.type) out.type = "box";
+    if (!out.game) out.game = "pokemon";
+    if (!out.name) out.name = "(이름 없음)";
+    if (typeof out.price !== "number") out.price = Number(out.price) || 0;
+
+    if (!base) {
+      var art = defaultArt(out.type, out.game);
+      for (var k in art) if (!out[k]) out[k] = art[k];
+      out.dbOnly = true;
+    }
+    return out;
+  }
+
+  /* 화면에 보여줄 상품 (원본 + 실시간 재고/상태) */
+  function view(d) {
+    if (!d) return null;
+    var row = mode === "db" ? dbRowById[d.id] : (dbRowById[d.id] || extraById[d.id]);
+    var local = productState[d.id] || {};
+
+    var stock;
+    if (row) {
+      stock = row.stock;
+    } else if (typeof local.stock === "number") {
+      stock = Math.max(0, Math.floor(local.stock));
+    } else {
+      stock = typeof d.stock === "number" ? Math.max(0, Math.floor(d.stock)) : initialStock(d);
+    }
+
+    var prev = row ? row.status : (local.status || d.status || "available");
+    var status = statusFromStock(stock, prev);
+
+    var out = copyObj(d);
+    /* 테스트 모드에서 고친 이름·가격은 로컬 값이 우선 (DB 모드에서는 DB 값) */
+    if (!row) {
+      if (local.name) out.name = local.name;
+      if (typeof local.price === "number") out.price = local.price;
+    }
+    out.stock = stock;
+    out.status = status;
+    out.soldOut = stock <= 0;
+    /* 기존 화면 함수들이 쓰는 잔여 수량 필드도 같이 맞춰 줍니다. */
+    if (out.type === "oripa") out.remainingUnits = stock;
+    else out.remaining = stock;
+    return out;
+  }
+
+  /* 카드 순서
+     · DB 모드: products 테이블이 전부입니다 (sort_order 순). 사장님이 지운 상품은 안 나옵니다.
+     · 테스트 모드: cards.js 순서 → 사장님이 추가한 상품 순 */
+  function productIds() {
+    if (mode === "db") {
+      return dbRows
+        .slice()
+        .sort(function (a, b) { return (a.sort_order || 0) - (b.sort_order || 0); })
+        .map(function (r) { return r.id; });
+    }
+
+    var ids = BASE.map(function (p) { return p.id; }).filter(function (id) {
+      var st = productState[id];
+      return !(st && st.deleted);
+    });
+    var seen = {};
+    ids.forEach(function (id) { seen[id] = true; });
+
+    extraProducts.forEach(function (r) {
+      if (!r || !r.id || seen[r.id]) return;
+      seen[r.id] = true;
+      ids.push(r.id);
+    });
+
+    return ids;
+  }
+
+  function products() {
+    return productIds()
+      .map(function (id) { return view(descriptor(id)); })
+      .filter(Boolean);
+  }
+
   function getProduct(id) {
-    var p = findBase(id);
-    return p ? view(p) : null;
+    var d = descriptor(id);
+    return d ? view(d) : null;
   }
 
   function unitOf(p) {
@@ -398,6 +515,8 @@
       total_amount: total,
       customer_name: form.name,
       depositor_name: form.depositor || form.name,
+      user_id: null,
+      is_member: false,
       phone: digits(form.phone),
       postcode: form.postcode || "",
       address: form.address || "",
@@ -464,6 +583,7 @@
       client.auth.onAuthStateChange(function (event, session) {
         if (event === "SIGNED_OUT") rememberSession(null);
         else if (session) rememberSession(session);
+        emit("auth");
       });
     } catch (e) {
       /* onAuthStateChange 를 지원하지 않는 버전이면 무시 */
@@ -501,30 +621,87 @@
       });
   }
 
+  var PRODUCT_FIELDS = {
+    full: "id, name, type, game, price, stock, status, subtitle, image_url, sort_order",
+    v1:   "id, name, type, game, price, stock, status",
+    min:  "id, name, price, stock, status",
+  };
+
+  function normalizeRow(r) {
+    return {
+      id: String(r.id),
+      name: r.name || "",
+      type: r.type || "box",
+      game: r.game || "pokemon",
+      price: Number(r.price) || 0,
+      stock: Math.max(0, Math.floor(Number(r.stock) || 0)),
+      status: r.status || "available",
+      subtitle: r.subtitle || "",
+      image_url: r.image_url || "",
+      sort_order: Number(r.sort_order) || 0,
+    };
+  }
+
+  function applyRows(rows) {
+    dbRows = [];
+    dbRowById = {};
+    (rows || []).forEach(function (r) {
+      if (!r || !r.id) return;
+      var row = normalizeRow(r);
+      dbRows.push(row);
+      dbRowById[row.id] = row;
+    });
+    /* DB에 아직 없는 cards.js 상품은 카드 재고를 그대로 사용 */
+    BASE.forEach(function (p) {
+      if (!productState[p.id]) {
+        productState[p.id] = { stock: initialStock(p), status: p.status || "available" };
+      }
+    });
+  }
+
+  /* 새 열(subtitle·image_url)이 아직 없는 DB에서도 동작하도록 단계적으로 줄여 조회합니다. */
   function fetchDbProducts() {
     return connectDb().then(function (c) {
-      return c.from("products").select("id, stock, status");
-    }).then(function (res) {
-      if (res.error) throw new Error(res.error.message);
-      var rows = res.data || [];
-      var found = {};
-      rows.forEach(function (row) {
-        if (!findBase(row.id)) return;
-        found[row.id] = true;
-        productState[row.id] = {
-          stock: Math.max(0, Math.floor(Number(row.stock) || 0)),
-          status: row.status || "available",
-        };
-      });
-      /* DB에 아직 없는 상품은 cards.js 재고를 그대로 사용 */
-      var missing = BASE.filter(function (p) { return !found[p.id]; });
-      missing.forEach(function (p) {
-        if (!productState[p.id]) {
-          productState[p.id] = { stock: initialStock(p), status: p.status || "available" };
-        }
-      });
-      return rows.length;
+      var order = ["full", "v1", "min"];
+      function attempt(i) {
+        return c.from("products").select(PRODUCT_FIELDS[order[i]]).then(function (res) {
+          if (res.error) {
+            if (i + 1 < order.length) return attempt(i + 1);
+            throw new Error(res.error.message || "상품을 불러오지 못했습니다.");
+          }
+          dbColumns = order[i];
+          applyRows(res.data || []);
+          return dbRows.length;
+        });
+      }
+      return attempt(0);
     });
+  }
+
+  /* 사장님 공개 설정 (비로그인 주문 허용 여부). 표가 없으면 게스트 주문 허용으로 봅니다. */
+  function fetchSettings() {
+    if (mode === "demo" && !wantDb) {
+      settings.ready = false;
+      settings.requireLogin = false;
+      return Promise.resolve(false);
+    }
+    return connectDb()
+      .then(function (c) {
+        return c.from("shop_public_settings").select("require_login_to_order").eq("id", 1);
+      })
+      .then(function (res) {
+        if (res.error) throw new Error(res.error.message || "설정을 불러오지 못했습니다.");
+        var row = (res.data || [])[0];
+        settings.ready = !!row;
+        settings.requireLogin = !!(row && row.require_login_to_order);
+        return settings.ready;
+      })
+      .catch(function (err) {
+        settings.ready = false;
+        settings.requireLogin = false;
+        if (window.console && console.warn) console.warn("[ALL PO ONE] 설정 조회 실패:", err);
+        return false;
+      });
   }
 
   function normalizeDbOrder(o) {
@@ -541,11 +718,14 @@
       order_no: o.order_no,
       status: o.status,
       mode: "db",
+      user_id: o.user_id || null,
+      is_member: o.user_id ? true : !!o.is_member,
       created_at: o.created_at,
       updated_at: o.updated_at,
       paid_at: o.paid_at,
       shipped_at: o.shipped_at,
       cancelled_at: o.cancelled_at,
+      expires_at: o.expires_at || null,
       total_amount: Number(o.total_amount) || 0,
       customer_name: o.customer_name,
       depositor_name: o.depositor_name,
@@ -736,43 +916,278 @@
     });
   }
 
-  /* ── 관리자: 재고 수정 ────────────────────────────────── */
-  function localSetStock(id, stock) {
+  /* ── 관리자: 상품 추가·수정·삭제 ──────────────────────── */
+  function newProductId() {
+    var id = "";
+    var buf = new Uint8Array(5);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(buf);
+    for (var i = 0; i < 5; i++) id += "0123456789abcdef"[(buf[i] || Math.floor(Math.random() * 16)) % 16];
+    return "db-" + id;
+  }
+
+  function localSaveProduct(data) {
+    var id = data.id || newProductId();
     var base = findBase(id);
-    if (!base) {
-      var e2 = new Error("상품을 찾을 수 없습니다.");
-      e2.code = "NOT_FOUND";
-      throw e2;
+    var prev = extraById[id] || {};
+    var name = String(data.name || "").trim();
+    var price = clampInt(data.price, 0, 100000000);
+    var stock = clampInt(data.stock, 0, 99999);
+    var subtitle = String(data.subtitle == null ? (prev.subtitle || "") : data.subtitle).trim();
+    var image = String(data.image_url == null ? (prev.image_url || "") : data.image_url).trim();
+    var status = statusFromStock(stock, prev.status || (base && base.status) || "available");
+
+    if (!name) {
+      var e1 = new Error("상품명을 입력해 주세요.");
+      e1.code = "BAD_INPUT";
+      throw e1;
     }
-    var next = clampInt(stock, 0, 9999);
-    productState[id] = {
-      stock: next,
-      status: statusFromStock(next, productState[id] ? productState[id].status : base.status),
-    };
+
+    if (base && !prev.id) {
+      /* cards.js 상품: 로컬 수정값만 덮어쓰기 */
+      productState[id] = { name: name, price: price, stock: stock, status: status };
+    } else {
+      var row = {
+        id: id,
+        name: name,
+        type: data.type || prev.type || (base && base.type) || "box",
+        game: data.game || prev.game || (base && base.game) || "pokemon",
+        price: price,
+        stock: stock,
+        status: status,
+        subtitle: subtitle,
+        image_url: image,
+        sort_order: prev.sort_order || (1000 + extraProducts.length * 10),
+      };
+      var found = false;
+      extraProducts = extraProducts.map(function (r) {
+        if (r.id !== id) return r;
+        found = true;
+        return row;
+      });
+      if (!found) extraProducts.push(row);
+      extraById[id] = row;
+      productState[id] = { stock: stock, status: status };
+    }
+
     saveProductState();
     syncCart();
     emit("products");
     return getProduct(id);
   }
 
-  function setStock(id, stock) {
+  function localDeleteProduct(id) {
+    if (findBase(id) && !extraById[id]) {
+      /* cards.js 상품은 숨김 처리 (파일은 그대로 둡니다) */
+      productState[id] = { stock: 0, status: "soldout", deleted: true };
+    } else {
+      extraProducts = extraProducts.filter(function (r) { return r.id !== id; });
+      delete extraById[id];
+      delete productState[id];
+    }
+    saveProductState();
+    syncCart();
+    emit("products");
+    return true;
+  }
+
+  function rpcMissing(err) {
+    var msg = String((err && err.message) || "");
+    var code = String((err && err.code) || "");
+    return code === "PGRST202" || /could not find the function|schema cache/i.test(msg);
+  }
+
+  function upgradeNeeded() {
+    var e = new Error(
+      "새 기능(상품 추가·사진·회원 주문)은 DB 업그레이드가 필요합니다. " +
+      "Supabase SQL Editor 에서 supabase-upgrade-v2.sql 을 한 번 실행해 주세요."
+    );
+    e.code = "NEED_UPGRADE";
+    return e;
+  }
+
+  /* 상품 저장: 새 상품(id 없음)도, 기존 상품 수정도 같은 함수로 처리합니다. */
+  function saveProduct(data) {
+    var id = data.id ? String(data.id) : "";
+
     if (mode !== "db") {
       try {
-        return Promise.resolve(localSetStock(id, stock));
+        return Promise.resolve(localSaveProduct(data));
       } catch (err) {
         return Promise.reject(err);
       }
     }
-    return rpc("admin_set_stock", {
+
+    var prev = id ? dbRowById[id] : null;
+    var payload = {
+      p_id: id || null,
+      p_name: String(data.name || "").trim(),
+      p_type: data.type || (prev && prev.type) || "box",
+      p_game: data.game || (prev && prev.game) || "pokemon",
+      p_price: clampInt(data.price, 0, 100000000),
+      p_stock: clampInt(data.stock, 0, 99999),
+      p_subtitle: data.subtitle == null ? (prev ? prev.subtitle : null) : String(data.subtitle).trim(),
+      p_image_url: data.image_url == null ? (prev ? prev.image_url : null) : String(data.image_url).trim(),
       p_pin: null,
-      p_product_id: id,
-      p_stock: clampInt(stock, 0, 9999),
-    }).then(function () {
-      return fetchDbProducts();
-    }).then(function () {
-      emit("products");
-      return getProduct(id);
+    };
+
+    function done(res) {
+      var row = res || {};
+      return fetchDbProducts().then(function () {
+        emit("products");
+        return getProduct(row.id || id);
+      });
+    }
+
+    /* 이름·가격·재고만 바뀌었으면 좁은 RPC(admin_update_product)를 씁니다. */
+    var onlyBasic = prev &&
+      payload.p_type === prev.type && payload.p_game === prev.game &&
+      payload.p_subtitle === prev.subtitle && payload.p_image_url === prev.image_url;
+
+    if (onlyBasic) {
+      return rpc("admin_update_product", {
+        p_product_id: id,
+        p_name: payload.p_name,
+        p_price: payload.p_price,
+        p_stock: payload.p_stock,
+        p_pin: null,
+      }).then(done).catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+    }
+
+    return rpc("admin_upsert_product", payload)
+      .then(done)
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  function deleteProduct(id) {
+    if (mode !== "db") {
+      return Promise.resolve(localDeleteProduct(id));
+    }
+    return rpc("admin_delete_product", { p_id: id, p_pin: null })
+      .then(function () {
+        return fetchDbProducts();
+      })
+      .then(function () {
+        syncCart();
+        emit("products");
+        return true;
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  function setStock(id, stock) {
+    return saveProduct({ id: id, name: (getProduct(id) || {}).name, price: (getProduct(id) || {}).price, stock: stock });
+  }
+
+  /* ── 관리자: 사진 올리기 (Supabase Storage) ──────────── */
+  function readAsDataURL(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result || "")); };
+      reader.onerror = function () { reject(new Error("사진을 읽지 못했습니다.")); };
+      reader.readAsDataURL(file);
     });
+  }
+
+  function shrinkImage(file, maxSide, quality, wantDataUrl) {
+    return Promise.resolve()
+      .then(function () {
+        return new Promise(function (resolve, reject) {
+          var img = new Image();
+          var url = URL.createObjectURL(file);
+          img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+          img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("사진을 읽지 못했습니다.")); };
+          img.src = url;
+        });
+      })
+      .then(function (img) {
+        var w = img.naturalWidth || img.width;
+        var h = img.naturalHeight || img.height;
+        var scale = Math.min(1, maxSide / Math.max(w, h));
+        var cw = Math.max(1, Math.round(w * scale));
+        var ch = Math.max(1, Math.round(h * scale));
+
+        var canvas = document.createElement("canvas");
+        canvas.width = cw;
+        canvas.height = ch;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, cw, ch);
+        ctx.drawImage(img, 0, 0, cw, ch);
+
+        if (wantDataUrl) {
+          return { dataUrl: canvas.toDataURL("image/jpeg", quality), width: cw, height: ch };
+        }
+        return new Promise(function (resolve) {
+          canvas.toBlob(
+            function (blob) {
+              resolve({ blob: blob, width: cw, height: ch });
+            },
+            "image/jpeg",
+            quality
+          );
+        });
+      });
+  }
+
+  /* 파일 → { url, via: "storage" | "dataurl", warning }
+     Storage 버킷이 없거나 업로드가 거부되면 작은 사진(data URL)으로 대신 저장합니다. */
+  function uploadProductImage(file, idHint) {
+    if (!file) return Promise.reject(new Error("사진 파일을 선택해 주세요."));
+    if (!/^image\//.test(String(file.type || ""))) {
+      return Promise.reject(new Error("사진 파일(jpg·png·webp)만 올릴 수 있습니다."));
+    }
+
+    function fallback(err) {
+      return shrinkImage(file, 640, 0.72, true).then(function (small) {
+        return {
+          url: small.dataUrl,
+          via: "dataurl",
+          warning:
+            "사진 저장소(Storage)에 올리지 못해 작은 사진으로 저장합니다. " +
+            "supabase-upgrade-v2.sql 을 실행하면 원본 화질로 올릴 수 있습니다." +
+            " (" + ((err && err.message) || "업로드 실패") + ")",
+        };
+      });
+    }
+
+    if (mode !== "db") {
+      return shrinkImage(file, 640, 0.72, true).then(function (small) {
+        return {
+          url: small.dataUrl,
+          via: "dataurl",
+          warning: "테스트 모드에서는 사진이 이 브라우저에만 저장됩니다.",
+        };
+      });
+    }
+
+    var path = "products/" + String(idHint || "new") + "-" + Date.now() + ".jpg";
+
+    return shrinkImage(file, 1200, 0.82, false)
+      .then(function (out) {
+        if (!out.blob) throw new Error("사진을 변환하지 못했습니다.");
+        return connectDb().then(function (c) {
+          return c.storage
+            .from(IMAGE_BUCKET)
+            .upload(path, out.blob, { contentType: "image/jpeg", upsert: true, cacheControl: "31536000" })
+            .then(function (res) {
+              if (res.error) throw new Error(res.error.message || "사진 업로드에 실패했습니다.");
+              var pub = c.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+              var url = pub && pub.data ? pub.data.publicUrl : "";
+              if (!url) throw new Error("사진 주소를 얻지 못했습니다.");
+              return { url: url, via: "storage", warning: "" };
+            });
+        });
+      })
+      .catch(fallback);
   }
 
   /* ============================================================
@@ -851,6 +1266,18 @@
     if (/user not found/i.test(raw)) {
       return "등록되지 않은 관리자 이메일입니다.";
     }
+    if (/already registered|already been registered|user already exists/i.test(raw)) {
+      return "이미 가입된 이메일입니다. [로그인] 탭에서 로그인해 주세요.";
+    }
+    if (/password should be at least|weak password|password.*too short/i.test(raw)) {
+      return "비밀번호가 너무 짧습니다. 6자 이상으로 입력해 주세요.";
+    }
+    if (/signups? not allowed|signup is disabled|signups are disabled/i.test(raw)) {
+      return "지금은 회원가입이 꺼져 있습니다. 사장님께 오픈톡으로 문의해 주세요.";
+    }
+    if (/invalid email|email address .* invalid|unable to validate email/i.test(raw)) {
+      return "이메일 형식을 확인해 주세요.";
+    }
     if (/failed to fetch|network/i.test(raw)) {
       return "서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.";
     }
@@ -904,6 +1331,286 @@
       });
   }
 
+  /* ============================================================
+     손님 회원 — 회원가입 · 로그인 · 내 주문
+     ------------------------------------------------------------
+     사장님 로그인(signIn)과 같은 Supabase Auth 를 쓰지만,
+     손님은 app_metadata.role 이 없어도 됩니다.
+     ============================================================ */
+
+  function demoAuthError() {
+    var e = new Error(
+      "지금은 DB 연동 전 테스트 모드입니다. 회원가입·로그인은 Supabase 연동 후에 쓸 수 있습니다. " +
+      "비회원 주문으로 진행해 주세요."
+    );
+    e.code = "DEMO";
+    return e;
+  }
+
+  function signInUser(email, password) {
+    var mail = String(email == null ? "" : email).trim();
+    var pw = String(password == null ? "" : password);
+    if (!mail) return Promise.reject(new Error("이메일을 입력해 주세요."));
+    if (!pw) return Promise.reject(new Error("비밀번호를 입력해 주세요."));
+    if (mode !== "db") return Promise.reject(demoAuthError());
+
+    return connectDb()
+      .then(function (c) { return c.auth.signInWithPassword({ email: mail, password: pw }); })
+      .then(function (res) {
+        if (res && res.error) throw new Error(authMessage(res.error));
+        var session = (res && res.data && res.data.session) || null;
+        var user = (res && res.data && res.data.user) || sessionUser(session);
+        if (!session) throw new Error("로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        rememberSession(session);
+        emit("auth");
+        return { session: session, user: user };
+      });
+  }
+
+  function signUpUser(email, password, meta) {
+    var mail = String(email == null ? "" : email).trim();
+    var pw = String(password == null ? "" : password);
+    var info = meta || {};
+    if (!mail) return Promise.reject(new Error("이메일을 입력해 주세요."));
+    if (!pw || pw.length < 6) return Promise.reject(new Error("비밀번호는 6자 이상으로 입력해 주세요."));
+    if (mode !== "db") return Promise.reject(demoAuthError());
+
+    var data = {};
+    if (info.name) data.name = String(info.name).trim();
+    if (info.phone) data.phone = digits(info.phone);
+
+    return connectDb()
+      .then(function (c) {
+        return c.auth.signUp({ email: mail, password: pw, options: { data: data } });
+      })
+      .then(function (res) {
+        if (res && res.error) throw new Error(authMessage(res.error));
+        var payload = (res && res.data) || {};
+        var session = payload.session || null;
+        var user = payload.user || null;
+
+        /* 이메일 확인이 켜져 있으면 세션이 바로 나오지 않습니다. */
+        if (!session) {
+          var exists = user && user.identities && user.identities.length === 0;
+          return {
+            needsConfirm: true,
+            alreadyRegistered: !!exists,
+            user: user,
+            message: exists
+              ? "이미 가입된 이메일입니다. [로그인] 탭에서 로그인해 주세요."
+              : "가입한 이메일로 인증 링크를 보냈습니다. 메일함에서 인증 링크를 눌러 주세요.",
+          };
+        }
+
+        rememberSession(session);
+        emit("auth");
+        return { needsConfirm: false, session: session, user: user || sessionUser(session) };
+      });
+  }
+
+  function signOutUser() {
+    if (mode !== "db") {
+      rememberSession(null);
+      emit("auth");
+      return Promise.resolve();
+    }
+    return connectDb()
+      .then(function (c) { return c.auth.signOut({ scope: "local" }); })
+      .catch(function (err) {
+        if (window.console && console.warn) console.warn("[ALL PO ONE] 로그아웃 실패:", err);
+      })
+      .then(function () {
+        rememberSession(null);
+        emit("auth");
+      });
+  }
+
+  function userMeta() {
+    var u = currentUser();
+    return (u && u.user_metadata) || {};
+  }
+
+  /* 주문 완료 시 최근 배송지를 계정에 저장 → 다음 주문 때 자동 채움 */
+  function saveShipping(form) {
+    if (mode !== "db" || !currentUser()) return Promise.resolve(false);
+    var data = {
+      name: String(form.name || "").trim(),
+      phone: digits(form.phone),
+      shipping: {
+        postcode: String(form.postcode || "").trim(),
+        address: String(form.address || "").trim(),
+        address_detail: String(form.address_detail || "").trim(),
+      },
+    };
+    return connectDb()
+      .then(function (c) { return c.auth.updateUser({ data: data }); })
+      .then(function (res) {
+        if (res && res.error) throw new Error(res.error.message || "저장하지 못했습니다.");
+        /* 세션은 onAuthStateChange(USER_UPDATED) 로 갱신됩니다. */
+        return true;
+      })
+      .catch(function (err) {
+        if (window.console && console.warn) console.warn("[ALL PO ONE] 배송지 저장 실패:", err);
+        return false;
+      });
+  }
+
+  function myOrders() {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    if (!currentUser()) {
+      var e = new Error("로그인 후 이용해 주세요.");
+      e.code = "NOT_LOGGED_IN";
+      return Promise.reject(e);
+    }
+    return rpc("my_orders", {})
+      .then(function (data) {
+        var list = Array.isArray(data) ? data : (data ? [data] : []);
+        return list.map(normalizeDbOrder);
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* ── 주문 취소 · 10분 만료 ───────────────────────────────── */
+  var TTL_MS = 10 * 60 * 1000;
+
+  function expiresAtOf(order) {
+    if (!order) return 0;
+    if (order.expires_at) {
+      var t = Date.parse(order.expires_at);
+      if (!isNaN(t)) return t;
+    }
+    var c = Date.parse(order.created_at || "");
+    return isNaN(c) ? 0 : c + TTL_MS;
+  }
+
+  /* 지난 미입금 주문을 지금 정리합니다. (사이트·주문·조회를 열 때 호출) */
+  function expireNow() {
+    if (mode !== "db") {
+      var t = Date.now();
+      var changed = 0;
+      readOrders().forEach(function (o) {
+        if (o.status !== "pending_payment") return;
+        if (expiresAtOf(o) > t) return;
+        try {
+          localSetStatus(o.order_no, "cancelled");
+          changed++;
+        } catch (e) { /* 무시 */ }
+      });
+      if (changed) emit("orders");
+      return Promise.resolve({ expired: changed });
+    }
+
+    return rpc("expire_unpaid_orders", {})
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        var n = Number(raw && raw.expired) || 0;
+        if (n > 0) {
+          return fetchDbProducts().then(function () {
+            emit("products");
+            emit("orders");
+            return { expired: n };
+          });
+        }
+        return { expired: 0 };
+      })
+      .catch(function () {
+        /* 업그레이드 전이거나 일시 오류 → 화면은 그대로 진행 */
+        return { expired: 0 };
+      });
+  }
+
+  function localCancelOrder(orderNo) {
+    var list = readOrders();
+    var target = null;
+    list.forEach(function (o) { if (o.order_no === orderNo) target = o; });
+    if (!target) {
+      var e = new Error("주문을 찾을 수 없습니다.");
+      e.code = "NOT_FOUND";
+      throw e;
+    }
+    if (target.status === "cancelled") {
+      var e2 = new Error("이미 취소된 주문입니다.");
+      e2.code = "CANCELLED";
+      throw e2;
+    }
+    if (target.status !== "pending_payment") {
+      var e3 = new Error("입금이 확인된 주문은 직접 취소할 수 없습니다.");
+      e3.code = "NOT_CANCELLABLE";
+      throw e3;
+    }
+    return localSetStatus(orderNo, "cancelled");
+  }
+
+  /* 손님 직접 취소 (입금대기만). 비회원은 주문자명 + 연락처로 본인 확인. */
+  function cancelMyOrder(orderNo, name, phone) {
+    var no = String(orderNo || "").trim();
+    if (!no) return Promise.reject(new Error("주문번호를 확인해 주세요."));
+
+    if (mode !== "db") {
+      try {
+        var out = localCancelOrder(no);
+        syncCart();
+        emit("products");
+        emit("orders");
+        return Promise.resolve(out);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+
+    return rpc("cancel_my_order", {
+      p_order_no: no,
+      p_name: name ? String(name).trim() : null,
+      p_phone: phone ? digits(phone) : null,
+    })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        var order = normalizeDbOrder(raw && raw.order ? raw.order : raw);
+        return fetchDbProducts().then(function () {
+          emit("products");
+          emit("orders");
+          return order;
+        });
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님 설정: 비로그인 주문 허용 여부 */
+  function requireLogin() {
+    return !!settings.requireLogin;
+  }
+
+  function settingsReady() {
+    return !!settings.ready;
+  }
+
+  function setRequireLogin(flag) {
+    if (mode !== "db") {
+      var e = new Error("이 설정은 DB 연동 후에 바꿀 수 있습니다.");
+      e.code = "DEMO";
+      return Promise.reject(e);
+    }
+    return rpc("admin_set_require_login", { p_require: !!flag, p_pin: null })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        settings.requireLogin = !!(raw && raw.require_login_to_order);
+        settings.ready = true;
+        emit("settings");
+        return settings.requireLogin;
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+
   /* 테스트 모드 화면 잠금 (비밀번호 없음 — 같은 브라우저 로컬 데이터 전용) */
   function demoUnlocked() {
     try { return sessionStorage.getItem(LS_ADMIN) === "1"; } catch (e) { return false; }
@@ -930,13 +1637,16 @@
       return readyPromise;
     }
 
-    readyPromise = fetchDbProducts()
+    readyPromise = Promise.all([fetchDbProducts(), fetchSettings()])
       .then(function () {
         mode = "db";
         dbError = "";
         emit("products");
-        return "db";
+        emit("settings");
       })
+      /* 사이트를 여는 순간 10분 지난 미입금 주문을 정리합니다. */
+      .then(function () { return expireNow(); })
+      .then(function () { return "db"; })
       .catch(function (err) {
         /* DB에 닿지 못하면 화면이 멈추지 않도록 테스트 모드로 계속 진행 */
         mode = "demo";
@@ -954,11 +1664,13 @@
       syncCart();
       emit("products");
       emit("orders");
+      emit("settings");
       return Promise.resolve("demo");
     }
-    return fetchDbProducts().then(function () {
+    return Promise.all([fetchDbProducts(), fetchSettings()]).then(function () {
       syncCart();
       emit("products");
+      emit("settings");
       return "db";
     });
   }
@@ -990,7 +1702,27 @@
     listOrders: listOrders,
     setOrderStatus: setOrderStatus,
     setStock: setStock,
+    saveProduct: saveProduct,
+    deleteProduct: deleteProduct,
+    uploadProductImage: uploadProductImage,
     listDepositEvents: listDepositEvents,
+    dbColumns: function () { return dbColumns; },
+
+    /* 사장님 설정 · 손님 회원 */
+    requireLogin: requireLogin,
+    settingsReady: settingsReady,
+    setRequireLogin: setRequireLogin,
+    user: currentUser,
+    userMeta: userMeta,
+    signInUser: signInUser,
+    signUpUser: signUpUser,
+    signOutUser: signOutUser,
+    saveShipping: saveShipping,
+    myOrders: myOrders,
+    cancelMyOrder: cancelMyOrder,
+    expireNow: expireNow,
+    expiresAtOf: expiresAtOf,
+    TTL_MS: TTL_MS,
 
     /* 관리자 인증 (Supabase Auth) */
     signIn: signIn,

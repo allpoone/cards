@@ -369,46 +369,360 @@
     });
   }
 
-  /* ── 재고 ─────────────────────────────────────────────── */
+  /* ── 상품 관리 ────────────────────────────────────────── */
   function stockState(p) {
     if (p.stock <= 0) return { label: "품절", cls: "soldout" };
     if (p.status === "low") return { label: "마감임박", cls: "low" };
     return { label: "판매중", cls: "available" };
   }
 
-  function renderStock() {
-    var s = window.APOStore;
-    if (!s) return;
-    var list = s.products();
-    $("stockList").innerHTML = list.map(function (p) {
-      var st = stockState(p);
-      return (
-        '<div class="stock-row" data-id="' + esc(p.id) + '">' +
-        '<div class="stock-row__name">' +
-        '<span class="stock-row__title">' + esc(p.name) + "</span>" +
-        '<span class="stock-row__meta">' + esc(TYPE[p.type] || p.type) + " · " + won(p.price) + " / " + esc(s.unitOf(p)) + "</span>" +
-        "</div>" +
-        '<div class="stock-row__ctrl">' +
-        '<button class="qty__btn" type="button" data-stock-step="-1" data-id="' + esc(p.id) + '" aria-label="' + esc(p.name) + ' 재고 줄이기">−</button>' +
-        '<input class="qty__input stock-row__input" type="number" inputmode="numeric" min="0" max="9999" value="' + p.stock + '" data-stock-input="' + esc(p.id) + '" aria-label="' + esc(p.name) + ' 재고" />' +
-        '<button class="qty__btn" type="button" data-stock-step="1" data-id="' + esc(p.id) + '" aria-label="' + esc(p.name) + ' 재고 늘리기">+</button>' +
-        '<button class="btn btn--ghost btn--xs" type="button" data-stock-save="' + esc(p.id) + '">저장</button>' +
-        "</div>" +
-        '<span class="stock-row__state" data-status="' + st.cls + '">' + st.label + "</span>" +
-        "</div>"
-      );
-    }).join("");
+  function thumbMarkup(p) {
+    if (p.image) {
+      return '<img src="' + esc(p.image) + '" alt="" loading="lazy" />';
+    }
+    return '<span aria-hidden="true">' + esc(p.glyph || "📦") + "</span>";
   }
 
-  function saveStock(id, value) {
+  function rowMeta(p) {
+    var s = window.APOStore;
+    return [
+      TYPE[p.type] || p.type,
+      p.game === "onepiece" ? "원피스" : "포켓몬",
+      won(p.price) + " / " + (s ? s.unitOf(p) : "개"),
+      "재고 " + p.stock,
+    ].join(" · ");
+  }
+
+  function productRow(p) {
+    var st = stockState(p);
+    var fid = "photo-" + p.id;
+    return (
+      '<article class="prow" data-id="' + esc(p.id) + '">' +
+      '<div class="prow__top">' +
+      '<div class="prow__thumb" data-id="' + esc(p.id) + '">' + thumbMarkup(p) + "</div>" +
+      '<div class="prow__meta">' +
+      '<b class="prow__title" data-title>' + esc(p.name) + "</b>" +
+      '<span class="prow__sub" data-sub>' + esc(rowMeta(p)) + "</span>" +
+      "</div>" +
+      '<span class="prow__state" data-status="' + st.cls + '">' + st.label + "</span>" +
+      '<button class="btn btn--ghost btn--xs" type="button" data-edit-toggle>수정</button>' +
+      "</div>" +
+
+      '<div class="prow__edit" hidden>' +
+      '<div class="prow__grid">' +
+      '<label class="pf"><span>상품명</span>' +
+      '<input type="text" data-field="name" maxlength="60" value="' + esc(p.name) + '" /></label>' +
+      '<label class="pf"><span>가격(원)</span>' +
+      '<input type="number" inputmode="numeric" min="0" data-field="price" value="' + p.price + '" /></label>' +
+      '<label class="pf"><span>재고</span>' +
+      '<input type="number" inputmode="numeric" min="0" max="99999" data-field="stock" value="' + p.stock + '" /></label>' +
+      '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
+      '<input type="text" data-field="subtitle" maxlength="80" value="' + esc(p.subtitle || p.series || "") + '" placeholder="예: SV8a / 일판 / 슈링크 O" /></label>' +
+      "</div>" +
+
+      '<div class="pf pf--wide">' +
+      '<span>사진</span>' +
+      '<div class="pf__photo">' +
+      '<input type="file" accept="image/*" id="' + esc(fid) + '" data-photo-input="' + esc(p.id) + '" hidden />' +
+      '<label class="btn btn--ghost btn--xs" for="' + esc(fid) + '">사진 선택</label>' +
+      '<input type="text" data-field="image_url" value="' + esc(p.imageUrl || "") + '" placeholder="사진 주소 (사진을 고르면 자동 입력)" />' +
+      '<span class="pf__busy" hidden>올리는 중…</span>' +
+      "</div>" +
+      '<span class="pf__preview" data-preview' + (p.image ? "" : " hidden") + '>' +
+      (p.image ? '<img src="' + esc(p.image) + '" alt="" />' : "") +
+      "</span>" +
+      "</div>" +
+
+      '<div class="prow__actions">' +
+      '<button class="btn btn--gold btn--sm" type="button" data-product-save>저장</button>' +
+      '<button class="btn btn--danger btn--sm" type="button" data-product-delete>삭제</button>' +
+      '<button class="btn btn--text btn--xs" type="button" data-edit-toggle>닫기</button>' +
+      "</div>" +
+      "</div>" +
+      "</article>"
+    );
+  }
+
+  function renderProducts() {
     var s = window.APOStore;
     if (!s) return;
-    s.setStock(id, value).then(function (p) {
-      if (p) toast(p.name + " 재고를 " + p.stock + s.unitOf(p) + "로 저장했습니다.", "ok");
-      renderStock();
-    }).catch(function (err) {
-      toast((err && err.message) || "재고를 저장하지 못했습니다.", "warn");
-    });
+    var host = $("stockList");
+    if (!host) return;
+    var list = s.products();
+
+    host.innerHTML = list.length
+      ? list.map(productRow).join("")
+      : '<p class="admin-empty__desc">등록된 상품이 없습니다. [+ 새 상품 추가]로 첫 상품을 등록해 보세요.</p>';
+  }
+
+  /* ── 새 상품 추가 ─────────────────────────────────────── */
+  function newProductMarkup() {
+    return (
+      '<div class="np">' +
+      '<div class="np__head">' +
+      "<b>새 상품 추가</b>" +
+      '<p>저장하면 손님 사이트 상품 목록에 바로 나타납니다.</p>' +
+      "</div>" +
+      '<div class="np__grid">' +
+      '<label class="pf pf--wide"><span>상품명 <em>*</em></span>' +
+      '<input type="text" id="npName" maxlength="60" placeholder="예: 테라스탈 페스티벌 ex 박스" /></label>' +
+      '<label class="pf"><span>분류</span>' +
+      '<select id="npType"><option value="box">미개봉 박스</option><option value="oripa">오리파</option><option value="single">싱글·기타</option></select></label>' +
+      '<label class="pf"><span>종목</span>' +
+      '<select id="npGame"><option value="pokemon">포켓몬</option><option value="onepiece">원피스</option></select></label>' +
+      '<label class="pf"><span>가격(원) <em>*</em></span>' +
+      '<input type="number" id="npPrice" inputmode="numeric" min="0" placeholder="320000" /></label>' +
+      '<label class="pf"><span>재고 <em>*</em></span>' +
+      '<input type="number" id="npStock" inputmode="numeric" min="0" max="99999" value="1" /></label>' +
+      '<label class="pf pf--wide"><span>한줄 설명 <em>(선택)</em></span>' +
+      '<input type="text" id="npSubtitle" maxlength="80" placeholder="예: SV8a / 일판 / 슈링크 O" /></label>' +
+      "</div>" +
+      '<div class="pf pf--wide">' +
+      "<span>사진 <em>(선택)</em></span>" +
+      '<div class="pf__photo">' +
+      '<input type="file" accept="image/*" id="npPhoto" data-photo-input="new" hidden />' +
+      '<label class="btn btn--ghost btn--xs" for="npPhoto">사진 선택</label>' +
+      '<input type="text" id="npImageUrl" placeholder="사진 주소 (사진을 고르면 자동 입력)" />' +
+      '<span class="pf__busy" id="npBusy" hidden>올리는 중…</span>' +
+      "</div>" +
+      '<span class="pf__preview" id="npPreview" hidden><img alt="" /></span>' +
+      "</div>" +
+      '<div class="np__actions">' +
+      '<button class="btn btn--gold btn--sm" type="button" id="npSave">이 상품 추가</button>' +
+      '<button class="btn btn--ghost btn--sm" type="button" id="npCancel">취소</button>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function openNewProduct() {
+    var host = $("newProductForm");
+    if (!host) return;
+    host.innerHTML = newProductMarkup();
+    host.hidden = false;
+    $("newProductBtn").hidden = true;
+    var name = $("npName");
+    if (name) name.focus();
+    host.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function closeNewProduct() {
+    var host = $("newProductForm");
+    if (host) {
+      host.hidden = true;
+      host.innerHTML = "";
+    }
+    var btn = $("newProductBtn");
+    if (btn) btn.hidden = false;
+  }
+
+  function saveNewProduct() {
+    var s = window.APOStore;
+    if (!s) return;
+    var data = {
+      name: ($("npName").value || "").trim(),
+      type: $("npType").value,
+      game: $("npGame").value,
+      price: Number($("npPrice").value) || 0,
+      stock: Number($("npStock").value) || 0,
+      subtitle: ($("npSubtitle").value || "").trim(),
+      image_url: ($("npImageUrl").value || "").trim(),
+    };
+
+    if (!data.name) {
+      toast("상품명을 입력해 주세요.", "warn");
+      $("npName").focus();
+      return;
+    }
+    if (!data.price || data.price < 0) {
+      toast("가격을 입력해 주세요.", "warn");
+      $("npPrice").focus();
+      return;
+    }
+
+    setBusy($("npSave"), true, "저장 중…");
+    s.saveProduct(data)
+      .then(function (p) {
+        setBusy($("npSave"), false);
+        closeNewProduct();
+        renderProducts();
+        toast((p ? p.name : "상품") + "을(를) 추가했습니다. 손님 사이트에 바로 보입니다.", "ok");
+      })
+      .catch(function (err) {
+        setBusy($("npSave"), false);
+        toast((err && err.message) || "상품을 추가하지 못했습니다.", "warn");
+      });
+  }
+
+  function setBusy(el, on, label) {
+    if (!el) return;
+    el.disabled = !!on;
+    if (on) {
+      el.dataset.label = el.textContent;
+      el.textContent = label || "처리 중…";
+    } else if (el.dataset.label) {
+      el.textContent = el.dataset.label;
+    }
+  }
+
+  /* ── 기존 상품 저장·삭제 ────────────────────────────── */
+  function rowValues(row) {
+    function v(name) {
+      var el = row.querySelector('[data-field="' + name + '"]');
+      return el ? el.value : "";
+    }
+    return {
+      name: String(v("name") || "").trim(),
+      price: Number(v("price")) || 0,
+      stock: Number(v("stock")) || 0,
+      subtitle: String(v("subtitle") || "").trim(),
+      image_url: String(v("image_url") || "").trim(),
+    };
+  }
+
+  function saveProductRow(row) {
+    var s = window.APOStore;
+    if (!s) return;
+    var id = row.getAttribute("data-id");
+    var values = rowValues(row);
+    if (!values.name) {
+      toast("상품명을 비울 수 없습니다.", "warn");
+      return;
+    }
+
+    var btn = row.querySelector("[data-product-save]");
+    setBusy(btn, true, "저장 중…");
+
+    s.saveProduct({
+      id: id,
+      name: values.name,
+      price: values.price,
+      stock: values.stock,
+      subtitle: values.subtitle,
+      image_url: values.image_url,
+    })
+      .then(function (p) {
+        setBusy(btn, false);
+        renderProducts();
+        toast((p ? p.name : "상품") + " 저장했습니다.", "ok");
+      })
+      .catch(function (err) {
+        setBusy(btn, false);
+        toast((err && err.message) || "저장하지 못했습니다.", "warn");
+      });
+  }
+
+  function deleteProductRow(row) {
+    var s = window.APOStore;
+    if (!s) return;
+    var id = row.getAttribute("data-id");
+    var name = row.getAttribute("data-name") || id;
+    var titleEl = row.querySelector("[data-title]");
+    if (titleEl) name = titleEl.textContent;
+
+    if (!window.confirm("[" + name + "] 상품을 삭제할까요?\n삭제하면 손님 사이트 목록에서 사라집니다.")) return;
+
+    s.deleteProduct(id)
+      .then(function () {
+        renderProducts();
+        toast("상품을 삭제했습니다.", "ok");
+      })
+      .catch(function (err) {
+        toast((err && err.message) || "삭제하지 못했습니다.", "warn");
+      });
+  }
+
+  /* ── 사진 고르기 → 업로드 → 미리보기 ──────────────── */
+  function handlePhoto(input) {
+    var s = window.APOStore;
+    if (!s || !input || !input.files || !input.files[0]) return;
+    var file = input.files[0];
+    var isNew = input.getAttribute("data-photo-input") === "new";
+    var idHint = isNew ? "new" : input.getAttribute("data-photo-input");
+
+    var wrap = isNew
+      ? $("newProductForm")
+      : input.closest(".prow");
+    if (!wrap) return;
+
+    var busy = isNew ? $("npBusy") : wrap.querySelector(".pf__busy");
+    var urlInput = isNew ? $("npImageUrl") : wrap.querySelector('[data-field="image_url"]');
+    var preview = isNew ? $("npPreview") : wrap.querySelector("[data-preview]");
+
+    if (busy) busy.hidden = false;
+
+    s.uploadProductImage(file, idHint)
+      .then(function (res) {
+        if (busy) busy.hidden = true;
+        if (urlInput) urlInput.value = res.url;
+        if (preview) {
+          preview.innerHTML = '<img src="' + esc(res.url) + '" alt="" />';
+          preview.hidden = false;
+        }
+        if (res.warning) toast(res.warning, "warn");
+        else toast("사진을 올렸습니다. [저장]을 누르면 상품에 적용됩니다.", "ok");
+      })
+      .catch(function (err) {
+        if (busy) busy.hidden = true;
+        toast((err && err.message) || "사진을 올리지 못했습니다.", "warn");
+      });
+  }
+
+  /* ── 주문 설정: 비로그인 주문 허용 ──────────────────── */
+  function renderSettings() {
+    var s = window.APOStore;
+    if (!s) return;
+    var sw = $("requireLoginSwitch");
+    var title = $("requireLoginTitle");
+    var desc = $("requireLoginDesc");
+    var state = $("requireLoginState");
+    var hint = $("requireLoginHint");
+    if (!sw) return;
+
+    var requireLogin = s.requireLogin();
+    var ready = s.settingsReady();
+    var demo = s.isDemo();
+
+    sw.setAttribute("aria-checked", requireLogin ? "true" : "false");
+    sw.disabled = demo || !ready;
+    if (state) state.textContent = requireLogin ? "ON · 회원만" : "OFF · 누구나";
+
+    if (title) title.textContent = requireLogin ? "회원 로그인 필수" : "비로그인(게스트) 주문 허용";
+    if (desc) {
+      desc.textContent = requireLogin
+        ? "지금은 로그인한 회원만 주문할 수 있습니다. 스위치를 끄면 비회원도 주문할 수 있습니다."
+        : "지금은 누구나 로그인 없이 주문할 수 있습니다. 회원만 주문하게 하려면 스위치를 켜 주세요.";
+    }
+
+    var msg = "";
+    if (demo) msg = "DB 연동 전 테스트 모드에서는 이 설정을 바꿀 수 없습니다.";
+    else if (!ready) msg = "설정 표가 아직 없습니다. Supabase SQL Editor 에서 supabase-upgrade-v2.sql 을 한 번 실행해 주세요.";
+    if (hint) {
+      hint.textContent = msg;
+      hint.hidden = !msg;
+    }
+  }
+
+  function toggleRequireLogin() {
+    var s = window.APOStore;
+    if (!s) return;
+    var next = !s.requireLogin();
+    var ask = next
+      ? "회원만 주문하도록 바꿀까요?\n로그인하지 않은 손님은 주문할 수 없게 됩니다. (회원가입은 누구나 가능)"
+      : "비회원도 주문할 수 있게 바꿀까요?\n로그인 없이도 주문이 접수됩니다.";
+    if (!window.confirm(ask)) return;
+
+    var sw = $("requireLoginSwitch");
+    if (sw) sw.disabled = true;
+    s.setRequireLogin(next)
+      .then(function (val) {
+        renderSettings();
+        toast(val ? "회원 로그인 필수로 바꿨습니다." : "비로그인 주문을 허용합니다.", "ok");
+      })
+      .catch(function (err) {
+        renderSettings();
+        toast((err && err.message) || "설정을 바꾸지 못했습니다.", "warn");
+      });
   }
 
   /* ── 자동 입금 확인 로그 ──────────────────────────────── */
@@ -525,7 +839,8 @@
 
     $("refreshBtn").addEventListener("click", function () {
       loadOrders();
-      renderStock();
+      renderProducts();
+      renderSettings();
       loadEvents();
       toast("새로고침했습니다.", "ok");
     });
@@ -536,8 +851,44 @@
     });
 
     $("stockReloadBtn").addEventListener("click", function () {
-      window.APOStore.reload().then(function () { renderStock(); loadOrders(); });
-      toast("재고를 다시 불러왔습니다.", "ok");
+      window.APOStore.reload().then(function () { renderProducts(); renderSettings(); loadOrders(); });
+      toast("상품을 다시 불러왔습니다.", "ok");
+    });
+
+    /* ── 주문 설정 토글 ── */
+    $("requireLoginSwitch").addEventListener("click", toggleRequireLogin);
+
+    /* ── 새 상품 추가 ── */
+    $("newProductBtn").addEventListener("click", openNewProduct);
+    $("newProductForm").addEventListener("click", function (e) {
+      if (e.target.closest("#npCancel")) { closeNewProduct(); return; }
+      if (e.target.closest("#npSave")) { saveNewProduct(); return; }
+    });
+
+    /* ── 상품 행: 수정 열기 · 저장 · 삭제 ── */
+    $("stockList").addEventListener("click", function (e) {
+      var row = e.target.closest(".prow");
+      if (!row) return;
+
+      if (e.target.closest("[data-edit-toggle]")) {
+        var box = row.querySelector(".prow__edit");
+        var open = box.hidden;
+        box.hidden = !open;
+        if (open) {
+          var first = box.querySelector('[data-field="name"]');
+          if (first) first.focus();
+        }
+        return;
+      }
+      if (e.target.closest("[data-product-save]")) { saveProductRow(row); return; }
+      if (e.target.closest("[data-product-delete]")) { deleteProductRow(row); return; }
+    });
+
+    /* 사진 선택(input type=file) — 목록이 다시 그려저도 듣도록 문서에 위임 */
+    document.addEventListener("change", function (e) {
+      var input = e.target.closest("[data-photo-input]");
+      if (!input) return;
+      handlePhoto(input);
     });
 
     $("orderList").addEventListener("click", function (e) {
@@ -546,35 +897,17 @@
       changeStatus(btn.getAttribute("data-no"), btn.getAttribute("data-act"));
     });
 
-    $("stockList").addEventListener("click", function (e) {
-      var step = e.target.closest("[data-stock-step]");
-      if (step) {
-        var id = step.getAttribute("data-id");
-        var input = document.querySelector('[data-stock-input="' + id + '"]');
-        var cur = input ? Number(input.value) || 0 : 0;
-        var next = Math.max(0, cur + Number(step.getAttribute("data-stock-step")));
-        if (input) input.value = next;
-        saveStock(id, next);
-        return;
-      }
-      var save = e.target.closest("[data-stock-save]");
-      if (save) {
-        var sid = save.getAttribute("data-stock-save");
-        var sinput = document.querySelector('[data-stock-input="' + sid + '"]');
-        if (!sinput) return;
-        saveStock(sid, Number(sinput.value) || 0);
-      }
-    });
-
     $("stockList").addEventListener("keydown", function (e) {
       if (e.key !== "Enter") return;
-      var input = e.target.closest("[data-stock-input]");
+      var input = e.target.closest("[data-field]");
       if (!input) return;
       e.preventDefault();
-      saveStock(input.getAttribute("data-stock-input"), Number(input.value) || 0);
+      var row = input.closest(".prow");
+      if (row) saveProductRow(row);
     });
 
-    window.addEventListener("apo:products", renderStock);
+    window.addEventListener("apo:products", renderProducts);
+    window.addEventListener("apo:settings", renderSettings);
 
     /* 다른 탭(손님 화면)에서 주문이 들어오면 자동 반영 */
     window.addEventListener("storage", function (e) {
@@ -588,7 +921,8 @@
   /* ── 시작 ─────────────────────────────────────────────── */
   function loadAll() {
     loadOrders();
-    renderStock();
+    renderProducts();
+    renderSettings();
     loadEvents();
   }
 
