@@ -2553,6 +2553,73 @@ body.auth-pending #headerUser { visibility: hidden; }
   grid-template-columns: repeat(6, 1fr);
   gap: 6px;
 }
+/* 50개씩 넘겨 보기 — 페이지 바 */
+.seat__pager {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -1px 0 9px;
+}
+.seat__pgbtn {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-dim);
+  font-size: 0.58rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.seat__pgbtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.24); }
+.seat__pgbtn:disabled { opacity: 0.3; cursor: default; }
+.seat__pgbtn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.seat__pgrange {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px 0;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.seat__pgrange::-webkit-scrollbar { display: none; }
+.seat__pgchip {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  font-weight: 780;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.seat__pgchip:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.24); }
+.seat__pgchip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.seat__pgchip-left { font-size: 0.6rem; font-weight: 700; color: var(--text-faint); }
+.seat__pgchip.is-on {
+  border-color: transparent;
+  background: linear-gradient(180deg, #f0d9a9, #e3c07a);
+  color: #241a06;
+}
+.seat__pgchip.is-on .seat__pgchip-left { color: rgba(36, 26, 6, 0.62); }
+.seat__pgchip.is-pick:not(.is-on) { border-color: rgba(240, 217, 169, 0.62); color: var(--gold-soft); }
 .seat__btn {
   position: relative;
   aspect-ratio: 1 / 1;

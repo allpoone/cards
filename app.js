@@ -738,6 +738,8 @@
       '<h3 class="seat__title">번호 선택</h3>' +
       '<p class="seat__meta" data-seat-meta>불러오는 중…</p>' +
       "</div>" +
+      /* 50개씩 넘겨 보기 — 총 구수가 51구 이상일 때만 채웁니다. */
+      '<div class="seat__pager" data-seat-pager hidden></div>' +
       '<p class="seat__loading" data-seat-loading>번호를 불러오는 중…</p>' +
       '<div class="seat__grid" data-seat-grid hidden></div>' +
       '<ul class="seat__legend" data-seat-legend hidden>' +
@@ -752,11 +754,12 @@
   }
 
   /* ── 번호 선택 상태 ───────────────────────────────────── */
-  var seat = { id: "", total: 0, price: 0, status: {}, picked: [], open: false };
+  var SEAT_PAGE_SIZE = 50;   /* 한 페이지에 보여줄 번호 개수 */
+  var seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false };
   var modalId = "";
 
   function resetSeat() {
-    seat = { id: "", total: 0, price: 0, status: {}, picked: [], open: false };
+    seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false };
   }
 
   function seatCounts() {
@@ -770,13 +773,79 @@
     return { avail: avail, held: held, sold: sold };
   }
 
+  /* 50개씩 페이지 나누기 */
+  function seatPageCount() {
+    return Math.max(1, Math.ceil((seat.total || 0) / SEAT_PAGE_SIZE));
+  }
+
+  function seatPageRange(idx) {
+    var from = idx * SEAT_PAGE_SIZE + 1;
+    var to = Math.min(seat.total || 0, (idx + 1) * SEAT_PAGE_SIZE);
+    return { from: from, to: Math.max(from, to) };
+  }
+
+  /* 그 페이지에서 아직 고를 수 있는 구수 (내가 고른 번호는 제외) */
+  function seatPageRemain(idx) {
+    var r = seatPageRange(idx);
+    var mine = {};
+    seat.picked.forEach(function (n) { mine[n] = true; });
+    var n = 0;
+    for (var i = r.from; i <= r.to; i++) {
+      if ((seat.status[i] || "available") === "available" && mine[i] !== true) n++;
+    }
+    return n;
+  }
+
+  function seatPageHasPick(idx) {
+    var r = seatPageRange(idx);
+    for (var i = 0; i < seat.picked.length; i++) {
+      if (seat.picked[i] >= r.from && seat.picked[i] <= r.to) return true;
+    }
+    return false;
+  }
+
+  /* 페이지 바 (51구 이상일 때만) */
+  function paintSeatPager() {
+    var box = document.querySelector("[data-seat-pager]");
+    if (!box) return;
+    var pages = seatPageCount();
+    if (pages <= 1) {
+      box.innerHTML = "";
+      box.hidden = true;
+      return;
+    }
+    var html =
+      '<button class="seat__pgbtn" type="button" data-seat-page="' + (seat.page - 1) + '"' +
+      ' aria-label="이전 50개"' + (seat.page <= 0 ? " disabled" : "") + ">◀</button>" +
+      '<div class="seat__pgrange">';
+    for (var i = 0; i < pages; i++) {
+      var r = seatPageRange(i);
+      var on = i === seat.page;
+      html +=
+        '<button class="seat__pgchip' + (on ? " is-on" : "") +
+        (seatPageHasPick(i) ? " is-pick" : "") + '" type="button" data-seat-page="' + i + '"' +
+        ' aria-pressed="' + (on ? "true" : "false") + '">' +
+        r.from + "~" + r.to +
+        '<span class="seat__pgchip-left">(' + seatPageRemain(i) + ")</span></button>";
+    }
+    html += "</div>" +
+      '<button class="seat__pgbtn" type="button" data-seat-page="' + (seat.page + 1) + '"' +
+      ' aria-label="다음 50개"' + (seat.page >= pages - 1 ? " disabled" : "") + ">▶</button>";
+    box.innerHTML = html;
+    box.hidden = false;
+  }
+
   function paintSeatGrid() {
     var host = document.querySelector("[data-seat-grid]");
     if (!host) return;
+    var pages = seatPageCount();
+    if (seat.page > pages - 1) seat.page = pages - 1;
+    if (seat.page < 0) seat.page = 0;
     var picked = {};
     seat.picked.forEach(function (n) { picked[n] = true; });
+    var range = seatPageRange(seat.page);
     var html = "";
-    for (var n = 1; n <= seat.total; n++) {
+    for (var n = range.from; n <= range.to; n++) {
       var st = seat.status[n] || "available";
       if (st === "available") {
         var on = picked[n] === true;
@@ -793,6 +862,7 @@
     }
     host.innerHTML = html;
     host.hidden = false;
+    paintSeatPager();
     var legend = document.querySelector("[data-seat-legend]");
     if (legend) legend.hidden = false;
   }
@@ -859,6 +929,7 @@
       price: Number(p.price) || 0,
       status: {},
       picked: [],
+      page: 0,
       open: true,
     };
     (board.seats || []).forEach(function (x) {
@@ -1090,6 +1161,25 @@
         seatBtn.setAttribute("aria-pressed", on ? "true" : "false");
         seatBtn.setAttribute("aria-label", num + "번" + (on ? " 선택됨" : ""));
         paintSeatSum();
+        paintSeatPager();
+        return;
+      }
+
+      /* ── 50개씩 페이지 이동 ── */
+      var pageBtn = e.target.closest("[data-seat-page]");
+      if (pageBtn) {
+        if (pageBtn.disabled) return;
+        var want = Number(pageBtn.getAttribute("data-seat-page"));
+        var last = seatPageCount() - 1;
+        if (!isFinite(want)) return;
+        want = Math.min(last, Math.max(0, want));
+        if (want === seat.page) return;
+        seat.page = want;
+        paintSeatGrid();
+        var host = document.querySelector("[data-seat-grid]");
+        if (host) {
+          try { host.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (err) { /* 무시 */ }
+        }
         return;
       }
 

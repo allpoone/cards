@@ -261,6 +261,8 @@
         html += '<span data-s="' + (pick[n] || "available") + '">' + n + "</span>";
       }
       mapEl.innerHTML = html || '<span class="oripa-seats__empty">번호판이 비어 있습니다.</span>';
+      /* 51구 이상은 미리보기가 길어지지 않게 접어서(스크롤) 보여줍니다. */
+      mapEl.classList.toggle("is-scroll", total > 50);
       mapEl.hidden = false;
       if (statusEl) {
         statusEl.textContent = "총 " + total + "구 · 판매가능 " + (c.available || 0) +

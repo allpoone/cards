@@ -672,6 +672,9 @@
 .oripa-seats span[data-s="held"] { background: rgba(255, 176, 32, 0.16); border-color: rgba(255, 176, 32, 0.4); color: #ffd08a; }
 .oripa-seats span[data-s="sold"] { background: rgba(255, 255, 255, 0.02); color: #59616f; text-decoration: line-through; }
 .oripa-seats__empty { grid-column: 1 / -1; font-size: 0.7rem; color: var(--text-faint); }
+.oripa-seats.is-scroll { max-height: 300px; overflow-y: auto; padding-right: 3px; }
+.oripa-seats.is-scroll::-webkit-scrollbar { width: 6px; }
+.oripa-seats.is-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 3px; }
 
 /* ── 상세 설명 블록 에디터 ─────────────────────────────── */
 .desc-editor { display: block; }
