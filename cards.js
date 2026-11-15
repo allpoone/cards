@@ -1,9 +1,9 @@
 /* ============================================================
-   ALL PO ONE — 설정 파일
+   ALL PO ONE(올포원) — 설정 파일
    ------------------------------------------------------------
    사이트에서 바꾸고 싶은 내용은 전부 이 파일에서 바꾸면 됩니다.
-   1) SITE_CONFIG : 샵 이름, 오픈톡 링크, 거래 안내 문구
-   2) CARDS       : 판매할 카드 목록 (추가/수정/삭제)
+   1) SITE_CONFIG : 샵 이름, 오픈톡·유튜브 링크, 거래 안내 문구
+   2) PRODUCTS    : 판매 상품 목록 (미개봉 박스 / 오리파 / 싱글·기타)
    두 곳만 고치면 index.html 은 건드릴 필요가 없습니다.
    ============================================================ */
 
@@ -11,9 +11,9 @@ const SITE_CONFIG = {
   /* ---- 샵 정보 -------------------------------------------------- */
   shopName: "ALL PO ONE",
   shopNameKo: "올포원",
-  tagline: "포켓몬 · 원피스 카드 컬렉션",
+  tagline: "포켓몬 · 원피스 미개봉 박스 & 오리파",
   intro:
-    "오래 모아온 카드를 한 장씩 정리하고 있습니다. 모든 카드는 사진으로 상태를 확인하시고, 궁금한 점은 오픈톡으로 편하게 문의해 주세요.",
+    "미개봉 박스와 오리파를 유튜브 라이브로 실시간 개봉·판매합니다. 잔여 수량과 당첨 라인업을 확인하시고, 카카오톡 오픈톡으로 편하게 참여·문의해 주세요.",
 
   /* ---- 오픈톡 링크 ----------------------------------------------
      카카오톡 오픈채팅방 주소를 아래 따옴표 안에 넣으면
@@ -21,252 +21,275 @@ const SITE_CONFIG = {
      예) openKakaoUrl: "https://open.kakao.com/o/abcd1234",
      비워 두면 "아직 연결되지 않았습니다" 안내가 뜹니다. */
   openKakaoUrl: "",
-  openKakaoLabel: "오픈톡으로 문의",
 
-  /* ---- 판매자 표시 이름 ---------------------------------------- */
-  sellerName: "준",
+  /* ---- 유튜브 라이브 링크 ----------------------------------------
+     채널/라이브 주소를 넣으면 상단에 [유튜브 라이브] 버튼이 생깁니다.
+     예) youtubeUrl: "https://www.youtube.com/@allpoone/live",  */
+  youtubeUrl: "",
 
   /* ---- 샘플 데이터 안내 배너 ------------------------------------
-     실제 카드로 교체한 뒤에는 showSampleBanner: false 로 바꾸세요. */
+     실제 상품으로 교체한 뒤에는 showSampleBanner: false 로 바꾸세요. */
   showSampleBanner: true,
   sampleBannerText:
-    "지금 보이는 카드는 화면 확인용 샘플입니다. 실제 판매 목록은 순차적으로 업데이트됩니다.",
-
-  /* ---- 등급 인증 조회 링크 --------------------------------------
-     {cert} 자리에 인증번호가 들어갑니다. */
-  gradeLookup: {
-    PSA: "https://www.psacard.com/cert/{cert}",
-    BGS: "https://www.beckett.com/grading/card-lookup?certNumber={cert}",
-    CGC: "https://www.cgccards.com/certlookup/{cert}/",
-  },
+    "지금 보이는 상품은 화면 확인용 샘플입니다. 실제 재고와 라인업은 라이브·오픈톡에서 업데이트됩니다.",
 
   /* ---- 거래 안내 ------------------------------------------------ */
-  guideTitle: "거래 안내",
+  guideTitle: "진행 안내",
   guideIntro:
-    "개인 컬렉션을 정리하는 판매라 사업자 등록 없이 거래합니다. 아래 내용을 확인해 주세요.",
+    "미개봉 박스 판매와 오리파 참여는 모두 오픈톡으로 진행하며, 유튜브 라이브에서 실시간으로 개봉합니다.",
   guideItems: [
     {
-      icon: "🔍",
-      title: "카드 상태 · 인증번호",
-      body:
-        "등급 카드는 PSA · BGS 인증번호를 상세 화면에서 바로 조회할 수 있습니다. 등급 없는 싱글(Raw)은 앞·뒷면 상태를 별도로 안내해 드립니다.",
-    },
-    {
-      icon: "🤝",
-      title: "직거래",
-      body:
-        "수도권 직거래 가능합니다. 장소와 시간은 오픈톡에서 협의하며, 카드 상태를 직접 확인하신 뒤 거래하실 수 있습니다.",
-    },
-    {
       icon: "📦",
-      title: "택배 거래",
+      title: "미개봉 박스",
       body:
-        "등급 카드는 슬리브 → 탑로더 → 에어캡 → 박스로 이중 포장해 발송합니다. 발송 전 포장 사진을 보내드리고, 분실·파손은 우체국 등기 배상 규정을 따릅니다.",
+        "공장 슈링크 상태 그대로인 박스만 올립니다. 슈링크 O / X / 카톤 여부와 잔여 수량을 상품마다 표기하고, 결제 전 오픈톡에서 최종 재고를 확인해 드립니다.",
     },
     {
-      icon: "💬",
-      title: "문의 · 예약",
+      icon: "🎰",
+      title: "오리파 참여",
       body:
-        "구매 문의는 카카오톡 오픈톡으로 받습니다. [카드 정보 복사하기]로 카드 정보를 복사해 붙여넣으시면 확인이 빠릅니다. 예약 중인 카드는 선착순으로 정리됩니다.",
+        "1구 단위로 참여하는 랜덤 상품입니다. 총 구수와 남은 구수, 메인 어타리·라스트원상 라인업을 미리 공개하며, 잔여 구수가 0이 되면 조기 마감됩니다.",
+    },
+    {
+      icon: "📺",
+      title: "유튜브 라이브",
+      body:
+        "개봉은 라이브 방송으로 진행하고, 참여 순서와 당첨 결과를 화면에 그대로 보여드립니다. 당첨 카드는 방송 중에 바로 확인하실 수 있습니다.",
+    },
+    {
+      icon: "🚚",
+      title: "발송 · 직거래",
+      body:
+        "박스는 에어캡 + 이중 박스로 포장해 발송하고, 오리파 당첨 카드는 슬리브·탑로더에 넣어 라이브 종료 후 순차 발송합니다. 수도권 직거래도 가능합니다.",
     },
   ],
   guideNotice:
-    "· 사진과 실물의 색감은 기기에 따라 조금 다를 수 있습니다.\n· 등급 카드의 케이스에 생긴 미세 스크래치는 감정 등급에 포함된 부분입니다.\n· 미성년자는 보호자 동의 후 거래해 주세요.",
+    "· 슈링크 X 박스는 개봉 이력이 있을 수 있어 상세 화면에 상태를 함께 표기합니다.\n· 오리파는 재고 소진 시 조기 마감되며, 마감 후에는 추가 모집하지 않습니다.\n· 라이브 참여 시 오픈톡 닉네임을 남겨 주세요. (당첨자 확인용)\n· 미성년자는 보호자 동의 후 참여해 주세요.",
 
   /* ---- 푸터 ---------------------------------------------------- */
-  footerNote: "© 2026 ALL PO ONE · 올포원 · 개인 컬렉션 판매",
+  footerNote: "© 2026 ALL PO ONE · 올포원 · 미개봉 박스 & 오리파",
 };
 
 /* ============================================================
-   카드 목록
+   상품 목록
    ------------------------------------------------------------
-   필수 필드
+   공통 필드
      id        : 고유 문자열 (중복 금지)
+     type      : "box"(미개봉 박스) | "oripa"(오리파) | "single"(싱글·기타)
      game      : "pokemon" | "onepiece"
-     name      : 카드 이름 (한국어)
-     nameEn    : 카드 이름 (영문, 검색용 · 선택)
-     setName   : 세트/확장팩 이름
+     name      : 상품 이름
+     nameEn    : 영문 이름 (선택, 검색용)
+     series    : 시리즈/확장팩 이름 (검색 대상)
      setCode   : 세트 코드 (선택)
-     cardNumber: 카드 번호 (선택)
-     grade     : 화면에 표시할 등급 문자열 (예: "PSA 10", "BGS 9.5", "Raw NM", "미개봉")
-     gradeBody : 필터용 등급 종류 ("PSA" | "BGS" | "CGC" | "RAW" | "SEALED")
-     price     : 원 단위 숫자 (예: 1250000)
-     status    : "available"(판매중) | "reserved"(예약중) | "sold"(판매완료)
+     language  : "JP"(일판) | "KR"(한판) | "EN"(영판)
+     price     : 원 단위 숫자 (박스당 / 1구 / 1팩 가격)
+     status    : "available"(판매중) | "low"(마감임박) | "soldout"(완판)
      c1, c2    : 카드 아트 그라데이션 색 (앞/뒤)
      accent    : 아트 포인트 색
-     glyph     : 아트에 크게 들어갈 글자/이모지 (선택)
+     glyph     : 아트에 크게 들어갈 글자/이모지
+   박스(box) / 싱글(single) 추가 필드
+     shrink    : "O"(슈링크 O) | "X"(슈링크 X) | "CARTON"(카톤)
+     remaining : 남은 수량 (박스/팩 단위)
+     total     : 처음 수량 (선택)
+     unitNote  : 수량 단위 설명 (예: "1카톤 = 12박스")
+   오리파(oripa) 추가 필드
+     totalUnits     : 총 구수
+     remainingUnits : 남은 구수
+     prizes         : [{ label: "메인 어타리", name: "..." }, ...]
+     lineupNote     : 라인업 안내 문구 (선택)
    선택 필드
-     cert      : 인증번호 (있으면 조회 링크 생성)
-     image     : 실제 카드 사진 URL (넣으면 그라데이션 대신 사진 표시)
-     language  : "한국어" | "일본어" | "영어"
+     image     : 실제 상품 사진 URL (넣으면 그라데이션 대신 사진 표시)
      note      : 상세 화면에 표시할 추가 설명
      sample    : true 이면 "SAMPLE" 표시
    ============================================================ */
 
-const CARDS = [
+const PRODUCTS = [
+  /* ── 미개봉 박스 ─────────────────────────────────────────── */
   {
-    id: "pk-kyogre-ex-psa10",
+    id: "box-terastal-festival-jp",
+    type: "box",
     game: "pokemon",
-    name: "가이오가 ex 풀아트",
-    nameEn: "Kyogre ex Full Art",
-    setName: "마그마단 VS 아쿠아단",
-    setCode: "ex8",
-    cardNumber: "96/95",
-    language: "일본어",
-    grade: "PSA 10",
-    gradeBody: "PSA",
-    cert: "84217365",
-    price: 1250000,
+    name: "테라스탈 페스티벌 ex 박스",
+    nameEn: "Terastal Festival ex Booster Box",
+    series: "테라스탈 페스티벌 ex",
+    setCode: "SV8a",
+    language: "JP",
+    shrink: "O",
+    remaining: 4,
+    total: 6,
+    price: 320000,
     status: "available",
-    c1: "#06304f",
-    c2: "#0e7490",
-    accent: "#7dd3fc",
-    glyph: "🌊",
-    note: "1세대 아쿠아단 테마의 대표 풀아트. PSA 10 케이스 상태 깨끗합니다.",
+    c1: "#1a1040",
+    c2: "#7c3aed",
+    accent: "#c4b5fd",
+    glyph: "💎",
+    note: "공장 슈링크 그대로입니다. 박스 모서리 상태 사진 요청 가능하며, 라이브 개봉 시 실시간으로 상태를 보여드립니다.",
     sample: true,
   },
   {
-    id: "pk-charizard-ex-sar-psa10",
+    id: "box-pokemon-151-kr",
+    type: "box",
     game: "pokemon",
-    name: "리자몽 ex SAR",
-    nameEn: "Charizard ex Special Art Rare",
-    setName: "포켓몬 카드 151",
+    name: "포켓몬 카드 151 박스",
+    nameEn: "Pokemon Card 151 Booster Box",
+    series: "포켓몬 카드 151",
     setCode: "SV2a",
-    cardNumber: "201/165",
-    language: "한국어",
-    grade: "PSA 10",
-    gradeBody: "PSA",
-    cert: "79104428",
-    price: 420000,
-    status: "available",
-    c1: "#5c1a0b",
-    c2: "#f97316",
-    accent: "#fdba74",
-    glyph: "🔥",
-    note: "센터링 좋은 개체. 151 SAR 중 가장 수요가 많은 카드입니다.",
-    sample: true,
-  },
-  {
-    id: "pk-pikachu-vmax-bgs95",
-    game: "pokemon",
-    name: "피카츄 VMAX 프로모",
-    nameEn: "Pikachu VMAX Promo",
-    setName: "스페셜 프로모팩",
-    cardNumber: "SWSH-044",
-    language: "한국어",
-    grade: "BGS 9.5",
-    gradeBody: "BGS",
-    cert: "0014877212",
-    price: 180000,
-    status: "reserved",
+    language: "KR",
+    shrink: "O",
+    remaining: 2,
+    total: 3,
+    price: 130000,
+    status: "low",
     c1: "#4a3608",
     c2: "#facc15",
     accent: "#fef08a",
     glyph: "⚡",
-    note: "예약 문의 진행 중입니다. 취소 시 다시 판매로 전환됩니다.",
+    note: "잔여 2박스로 마감이 가까운 상품입니다. 결제 전 오픈톡에서 재고를 먼저 확인해 주세요.",
     sample: true,
   },
   {
-    id: "pk-mew-ex-sar-psa10",
-    game: "pokemon",
-    name: "뮤 ex SAR",
-    nameEn: "Mew ex Special Art Rare",
-    setName: "포켓몬 카드 151",
-    setCode: "SV2a",
-    cardNumber: "205/165",
-    language: "한국어",
-    grade: "PSA 10",
-    gradeBody: "PSA",
-    cert: "81239057",
-    price: 95000,
-    status: "available",
-    c1: "#5b1035",
-    c2: "#f472b6",
-    accent: "#fbcfe8",
-    glyph: "🩷",
-    note: "입문용으로 인기 있는 카드. 케이스에 미세 스크래치 없습니다.",
-    sample: true,
-  },
-  {
-    id: "op-luffy-op01-003-psa10",
+    id: "box-op09-jp",
+    type: "box",
     game: "onepiece",
-    name: "몽키 D. 루피 (리더) 패러렐",
-    nameEn: "Monkey D. Luffy Leader Parallel",
-    setName: "ROMANCE DAWN",
-    setCode: "OP-01",
-    cardNumber: "OP01-003",
-    language: "일본어",
-    grade: "PSA 10",
-    gradeBody: "PSA",
-    cert: "73558112",
-    price: 310000,
+    name: "OP-09 신세계 박스",
+    nameEn: "One Piece Card Game OP-09 Booster Box",
+    series: "신세계",
+    setCode: "OP-09",
+    language: "JP",
+    shrink: "O",
+    remaining: 3,
+    total: 5,
+    price: 165000,
     status: "available",
     c1: "#5c0f14",
     c2: "#ef4444",
     accent: "#fca5a5",
     glyph: "🏴‍☠️",
-    note: "원피스 카드 게임 초기 리더 패러렐. 물량이 적어 꾸준히 찾는 카드입니다.",
+    note: "일판 정품 미개봉 박스입니다. 1박스 단위로 판매하며, 여러 박스 묶음 구매 시 포장을 합쳐 발송합니다.",
     sample: true,
   },
   {
-    id: "op-shanks-op01-120-raw",
+    id: "box-op07-en-carton",
+    type: "box",
     game: "onepiece",
-    name: "샹크스",
-    nameEn: "Shanks",
-    setName: "ROMANCE DAWN",
-    setCode: "OP-01",
-    cardNumber: "OP01-120",
-    language: "일본어",
-    grade: "Raw NM",
-    gradeBody: "RAW",
-    price: 45000,
-    status: "sold",
-    c1: "#3b0a12",
-    c2: "#b91c1c",
-    accent: "#fecaca",
-    glyph: "⚔️",
-    note: "판매 완료된 카드입니다. 재고 문의는 오픈톡으로 주세요.",
-    sample: true,
-  },
-  {
-    id: "op-hancock-op07-117-psa10",
-    game: "onepiece",
-    name: "보아 행콕 (슈퍼 패러렐)",
-    nameEn: "Boa Hancock Super Parallel",
-    setName: "500년의 미래",
+    name: "OP-07 500년 후의 미래 카톤",
+    nameEn: "One Piece OP-07 500 Years in the Future Carton",
+    series: "500년 후의 미래",
     setCode: "OP-07",
-    cardNumber: "OP07-117",
-    language: "일본어",
-    grade: "PSA 10",
-    gradeBody: "PSA",
-    cert: "75920334",
-    price: 150000,
+    language: "EN",
+    shrink: "CARTON",
+    remaining: 1,
+    total: 1,
+    price: 1050000,
     status: "available",
+    c1: "#2b1a08",
+    c2: "#b45309",
+    accent: "#fcd34d",
+    glyph: "📦",
+    unitNote: "1카톤 = 12박스",
+    note: "영판 카톤(12박스) 단위 판매입니다. 낱박스 분할은 하지 않으며, 카톤 상태 그대로 발송됩니다.",
+    sample: true,
+  },
+
+  /* ── 오리파 ──────────────────────────────────────────────── */
+  {
+    id: "oripa-eevee-heroes-kr",
+    type: "oripa",
+    game: "pokemon",
+    name: "이브이 히어로즈 오리파",
+    nameEn: "Eevee Heroes Oripa",
+    series: "이브이 히어로즈",
+    setCode: "S6a",
+    language: "KR",
+    price: 9900,
+    totalUnits: 50,
+    remainingUnits: 18,
+    status: "low",
+    prizes: [
+      { label: "메인 어타리", name: "리자몽 ex SAR PSA 10" },
+      { label: "어타리", name: "뮤 ex SAR (한판)" },
+      { label: "라스트원상", name: "이브이 SAR 3종 세트 + 151 박스" },
+    ],
+    lineupNote: "메인 1개 · 어타리 5개 · 라스트원상 1개 구성, 남은 구수 18구입니다.",
+    c1: "#5b1035",
+    c2: "#f472b6",
+    accent: "#fbcfe8",
+    glyph: "🎰",
+    note: "1구 9,900원, 중복 당첨 가능한 구조입니다. 라이브에서 구 순서대로 개봉하며 결과를 바로 확인하실 수 있습니다.",
+    sample: true,
+  },
+  {
+    id: "oripa-op05-jp",
+    type: "oripa",
+    game: "onepiece",
+    name: "OP-05 오리파",
+    nameEn: "OP-05 Oripa",
+    series: "새 시대의 주인공",
+    setCode: "OP-05",
+    language: "JP",
+    price: 19900,
+    totalUnits: 30,
+    remainingUnits: 7,
+    status: "low",
+    prizes: [
+      { label: "메인 어타리", name: "루피 리더 패러렐 PSA 10" },
+      { label: "어타리", name: "샹크스 SR (일판)" },
+      { label: "라스트원상", name: "OP-05 박스 1박스" },
+    ],
+    lineupNote: "메인 1개 · 어타리 3개 · 라스트원상 1개 구성, 남은 구수 7구입니다.",
     c1: "#3b1573",
     c2: "#a855f7",
     accent: "#e9d5ff",
-    glyph: "💜",
-    note: "인기 캐릭터 슈퍼 패러렐. PSA 10 등급 개체입니다.",
+    glyph: "🎲",
+    note: "일판 오리파로 1구 19,900원입니다. 마감이 가까워 남은 구수가 적습니다.",
     sample: true,
   },
   {
-    id: "pk-151-booster-box-sealed",
+    id: "oripa-pokemon-151-kr",
+    type: "oripa",
     game: "pokemon",
-    name: "포켓몬 카드 151 부스터 박스",
-    nameEn: "Pokemon Card 151 Booster Box",
-    setName: "포켓몬 카드 151",
+    name: "포켓몬 151 오리파",
+    nameEn: "Pokemon 151 Oripa",
+    series: "포켓몬 카드 151",
     setCode: "SV2a",
-    cardNumber: "30팩입",
-    language: "한국어",
-    grade: "미개봉",
-    gradeBody: "SEALED",
-    price: 130000,
-    status: "available",
+    language: "KR",
+    price: 6900,
+    totalUnits: 40,
+    remainingUnits: 0,
+    status: "soldout",
+    prizes: [
+      { label: "메인 어타리", name: "리자몽 ex SAR PSA 10" },
+      { label: "라스트원상", name: "151 부스터 박스 1박스" },
+    ],
+    lineupNote: "전 구수 완판된 회차입니다. 다음 회차는 라이브 공지로 안내됩니다.",
     c1: "#0f3b45",
     c2: "#22d3ee",
     accent: "#a5f3fc",
-    glyph: "📦",
-    note: "정품 미개봉 박스, 슈링크 상태 그대로입니다. 박스 모서리 상태 사진 요청 가능합니다.",
+    glyph: "🎁",
+    note: "완판된 회차입니다. 재오픈 문의는 오픈톡으로 남겨 주시면 공지드립니다.",
+    sample: true,
+  },
+
+  /* ── 싱글 · 기타 ─────────────────────────────────────────── */
+  {
+    id: "single-terastal-pack-jp",
+    type: "single",
+    game: "pokemon",
+    name: "테라스탈 페스티벌 ex 낱팩",
+    nameEn: "Terastal Festival ex Single Pack",
+    series: "테라스탈 페스티벌 ex",
+    setCode: "SV8a",
+    language: "JP",
+    shrink: "O",
+    remaining: 24,
+    price: 4500,
+    status: "available",
+    c1: "#06304f",
+    c2: "#0e7490",
+    accent: "#7dd3fc",
+    glyph: "🃏",
+    unitNote: "박스 개봉 후 낱팩 판매",
+    note: "미개봉 낱팩입니다. 박스에서 개봉한 팩을 그대로 발송하며, 랜덤 구성이라 특정 카드는 보장되지 않습니다.",
     sample: true,
   },
 ];

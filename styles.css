@@ -54,7 +54,7 @@ img { max-width: 100%; display: block; }
 button { font-family: inherit; }
 a { color: inherit; }
 [hidden] { display: none !important; }
-#cards { scroll-margin-top: 76px; }
+#products { scroll-margin-top: 76px; }
 
 .wrap {
   width: 100%;
@@ -119,6 +119,13 @@ a { color: inherit; }
 }
 .btn--ghost:hover { background: rgba(255, 255, 255, 0.08); }
 
+.btn--yt {
+  background: rgba(255, 40, 40, 0.14);
+  color: #ffb3b3;
+  border-color: rgba(255, 80, 80, 0.4);
+}
+.btn--yt:hover { background: rgba(255, 40, 40, 0.22); color: #fff; }
+
 .btn--text {
   background: none;
   border: 1px dashed var(--line-strong);
@@ -165,7 +172,7 @@ a { color: inherit; }
   z-index: 60;
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
-  background: rgba(7, 8, 11, 0.74);
+  background: rgba(9, 10, 14, 0.88);
   border-bottom: 1px solid var(--line);
 }
 .site-header__inner {
@@ -428,6 +435,11 @@ a { color: inherit; }
 
 #resetFilters { margin-left: auto; }
 
+@media (max-width: 900px) {
+  /* 필터 줄이 4줄이라 모바일에서는 상단 고정을 해제합니다. */
+  .controls { position: static; }
+}
+
 @media (max-width: 640px) {
   .filters { gap: 10px 12px; }
   .filter { flex: 1 1 100%; }
@@ -480,6 +492,8 @@ a { color: inherit; }
   position: relative;
   aspect-ratio: 5 / 7;
   overflow: hidden;
+  /* 구형 인앱 브라우저용 단순 그라데이션 — 아래 선언이 지원되면 덮어씁니다. */
+  background: linear-gradient(155deg, var(--c1) 0%, var(--c2) 62%, #05060a 100%);
   background:
     radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--c2) 55%, transparent), transparent 62%),
     linear-gradient(155deg, var(--c1) 0%, color-mix(in srgb, var(--c2) 78%, #000) 58%, #05060a 100%);
@@ -504,6 +518,14 @@ a { color: inherit; }
 .art__holo {
   position: absolute;
   inset: -20%;
+  background: conic-gradient(
+    from 200deg at 50% 50%,
+    rgba(255, 255, 255, 0) 0deg,
+    rgba(255, 255, 255, 0.34) 55deg,
+    rgba(255, 255, 255, 0.5) 88deg,
+    rgba(255, 255, 255, 0.2) 130deg,
+    rgba(255, 255, 255, 0) 180deg
+  );
   background: conic-gradient(
     from 200deg at 50% 50%,
     rgba(255, 255, 255, 0) 0deg,
@@ -618,7 +640,7 @@ a { color: inherit; }
   color: #241a05;
 }
 
-.grade-badge {
+.type-badge {
   position: absolute;
   left: 13px;
   bottom: 14px;
@@ -636,10 +658,9 @@ a { color: inherit; }
   backdrop-filter: blur(6px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
-.grade-badge[data-body="PSA"] { color: #ffd166; border-color: rgba(255, 209, 102, 0.5); }
-.grade-badge[data-body="BGS"] { color: #9ad1ff; border-color: rgba(154, 209, 255, 0.5); }
-.grade-badge[data-body="CGC"] { color: #c3b0ff; border-color: rgba(195, 176, 255, 0.5); }
-.grade-badge[data-body="SEALED"] { color: #8ef0c0; border-color: rgba(142, 240, 192, 0.5); }
+.type-badge[data-type="box"] { color: #ffd166; border-color: rgba(255, 209, 102, 0.5); }
+.type-badge[data-type="oripa"] { color: #c9b0ff; border-color: rgba(201, 176, 255, 0.5); }
+.type-badge[data-type="single"] { color: #9ad1ff; border-color: rgba(154, 209, 255, 0.5); }
 
 .status-badge {
   position: absolute;
@@ -659,18 +680,18 @@ a { color: inherit; }
   color: #64f0b0;
   border-color: rgba(61, 220, 151, 0.45);
 }
-.status-badge[data-status="reserved"] {
+.status-badge[data-status="low"] {
   background: rgba(255, 176, 32, 0.16);
   color: #ffc45c;
   border-color: rgba(255, 176, 32, 0.45);
 }
-.status-badge[data-status="sold"] {
+.status-badge[data-status="soldout"] {
   background: rgba(123, 132, 150, 0.22);
   color: #b6bece;
   border-color: rgba(123, 132, 150, 0.4);
 }
-.card[data-status="sold"] .art { filter: grayscale(0.65) brightness(0.72); }
-.card[data-status="sold"] .art__holo { opacity: 0.15; }
+.card[data-status="soldout"] .art { filter: grayscale(0.65) brightness(0.72); }
+.card[data-status="soldout"] .art__holo { opacity: 0.15; }
 
 /* ── 카드 본문 ──────────────────────────────────────────── */
 .card__body {
@@ -713,7 +734,30 @@ a { color: inherit; }
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
-.card[data-status="sold"] .card__price { color: var(--off); text-decoration: line-through; text-decoration-thickness: 1px; }
+.card[data-status="soldout"] .card__price { color: var(--off); text-decoration: line-through; text-decoration-thickness: 1px; }
+.card__spec {
+  margin: 2px 0 0;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card__prize {
+  margin: 4px 0 0;
+  font-size: 0.71rem;
+  color: var(--gold-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.92;
+}
+.card__prize b { font-weight: 750; }
+.card__unit {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
 .card__cert {
   font-size: 0.66rem;
   color: var(--text-faint);
@@ -907,7 +951,7 @@ a { color: inherit; }
 @media (min-width: 660px) {
   .detail { grid-template-columns: 260px 1fr; gap: 22px; padding: 22px; }
 }
-.detail__art-wrap { padding: 18px 18px 0; }
+.detail__art-wrap { padding: 18px 18px 0; max-width: 260px; margin-inline: auto; }
 @media (min-width: 660px) {
   .detail__art-wrap { padding: 0; }
 }
@@ -917,6 +961,7 @@ a { color: inherit; }
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(155deg, var(--c1) 0%, var(--c2) 62%, #05060a 100%);
   background:
     radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--c2) 55%, transparent), transparent 62%),
     linear-gradient(155deg, var(--c1) 0%, color-mix(in srgb, var(--c2) 78%, #000) 58%, #05060a 100%);
@@ -998,6 +1043,51 @@ a { color: inherit; }
 .detail__hint {
   margin: 12px 0 0;
   font-size: 0.74rem;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+
+/* 당첨 라인업 */
+.lineup {
+  margin: 0 0 16px;
+  padding: 14px 14px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(227, 192, 122, 0.28);
+  background: linear-gradient(180deg, rgba(227, 192, 122, 0.09), rgba(227, 192, 122, 0.02));
+}
+.lineup__title {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--gold-soft);
+}
+.lineup__list { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+.lineup__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.82rem;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.lineup__item.is-main {
+  background: rgba(227, 192, 122, 0.14);
+  border: 1px solid rgba(227, 192, 122, 0.3);
+}
+.lineup__label {
+  flex: none;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--gold);
+  min-width: 62px;
+}
+.lineup__name { color: var(--text); line-height: 1.45; }
+.lineup__note {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
   color: var(--text-faint);
   line-height: 1.6;
 }

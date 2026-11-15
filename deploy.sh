@@ -24,4 +24,4 @@ git push origin main
 echo "· gh-pages(배포 브랜치) 푸시"
 git push origin main:gh-pages
 
-echo "· 완료 — 1~2분 뒤 https://dlwjd0809-eng.github.io/cards/ 에 반영됩니다."
+echo "· 완료 — 1~2분 뒤 사이트에 반영됩니다."

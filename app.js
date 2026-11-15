@@ -1,6 +1,6 @@
 /* ============================================================
    ALL PO ONE — app.js
-   cards.js 의 SITE_CONFIG / CARDS 를 읽어 화면을 그립니다.
+   cards.js 의 SITE_CONFIG / PRODUCTS 를 읽어 화면을 그립니다.
    이 파일은 수정하지 않아도 됩니다.
    ============================================================ */
 
@@ -8,15 +8,24 @@
   "use strict";
 
   /* ── 상태 ─────────────────────────────────────────────── */
-  var state = { game: "all", grade: "all", status: "all", q: "" };
+  var state = { game: "all", type: "all", lang: "all", status: "all", q: "" };
 
   var STATUS = {
     available: { label: "판매중", order: 0 },
-    reserved: { label: "예약중", order: 1 },
-    sold: { label: "판매완료", order: 2 },
+    low: { label: "마감임박", order: 1 },
+    soldout: { label: "완판", order: 2 },
   };
 
+  var TYPE = {
+    box: { label: "미개봉 박스", short: "박스" },
+    oripa: { label: "오리파", short: "오리파" },
+    single: { label: "싱글·기타", short: "낱개" },
+  };
+
+  var LANG = { JP: "일판", KR: "한판", EN: "영판" };
   var GAME_LABEL = { pokemon: "POKÉMON", onepiece: "ONE PIECE" };
+
+  var SHRINK = { O: "슈링크 O", X: "슈링크 X", CARTON: "카톤" };
 
   var filterDefs = {
     game: [
@@ -24,25 +33,29 @@
       { key: "pokemon", label: "포켓몬" },
       { key: "onepiece", label: "원피스" },
     ],
-    grade: [
+    type: [
       { key: "all", label: "전체" },
-      { key: "PSA", label: "PSA" },
-      { key: "BGS", label: "BGS" },
-      { key: "RAWSEALED", label: "미개봉·싱글" },
+      { key: "box", label: "미개봉 박스" },
+      { key: "oripa", label: "오리파" },
+      { key: "single", label: "싱글·기타" },
+    ],
+    lang: [
+      { key: "all", label: "전체" },
+      { key: "JP", label: "일판(JP)" },
+      { key: "KR", label: "한판(KR)" },
+      { key: "EN", label: "영판(EN)" },
     ],
     status: [
       { key: "all", label: "전체" },
       { key: "available", label: "판매중" },
-      { key: "reserved", label: "예약중" },
-      { key: "sold", label: "판매완료" },
+      { key: "low", label: "마감임박" },
+      { key: "soldout", label: "완판" },
     ],
   };
 
   /* ── DOM ──────────────────────────────────────────────── */
   var $ = function (id) { return document.getElementById(id); };
-  var grid, emptyState, searchInput, searchClear, resultCount;
-
-  var lastFocused = null;
+  var grid, emptyState, searchInput, searchClear, resultCount, lastFocused = null;
 
   /* ── 유틸 ─────────────────────────────────────────────── */
   function esc(s) {
@@ -52,21 +65,67 @@
   }
 
   function won(n) {
-    var num = Number(n) || 0;
-    return "₩" + num.toLocaleString("ko-KR");
+    return "₩" + (Number(n) || 0).toLocaleString("ko-KR");
   }
 
   function kakaoUrl() {
-    var u = (SITE_CONFIG.openKakaoUrl || "").trim();
-    return u;
+    return (SITE_CONFIG.openKakaoUrl || "").trim();
   }
 
-  function lookupUrl(card) {
-    if (!card.cert) return "";
-    var body = card.gradeBody || (card.grade || "").split(" ")[0];
-    var tpl = (SITE_CONFIG.gradeLookup || {})[body];
-    if (!tpl) return "";
-    return tpl.replace("{cert}", encodeURIComponent(card.cert));
+  function typeOf(p) {
+    return TYPE[p.type] || TYPE.box;
+  }
+
+  function langOf(p) {
+    return LANG[p.language] || "-";
+  }
+
+  /* 수량/가격 단위 */
+  function unitWord(p) {
+    if (p.type === "oripa") return "구";
+    if (p.type === "single") return "팩";
+    return p.shrink === "CARTON" ? "카톤" : "박스";
+  }
+
+  function stockText(p) {
+    if (p.type === "oripa") {
+      var total = Number(p.totalUnits) || 0;
+      var left = Number(p.remainingUnits) || 0;
+      return "총 " + total + "구 · " + left + "구 남음";
+    }
+    var n = Number(p.remaining) || 0;
+    var w = unitWord(p);
+    return n > 0 ? "잔여 " + n + w : "잔여 0" + w;
+  }
+
+  function specText(p) {
+    var parts = [langOf(p)];
+    if (p.type === "oripa") {
+      parts.push("1구 " + won(p.price));
+      parts.push(stockText(p));
+    } else {
+      if (p.shrink) parts.push(SHRINK[p.shrink] || "");
+      parts.push(stockText(p));
+    }
+    return parts.filter(Boolean).join(" · ");
+  }
+
+  function mainPrize(p) {
+    if (!p.prizes || !p.prizes.length) return null;
+    for (var i = 0; i < p.prizes.length; i++) {
+      if (p.prizes[i].label.indexOf("메인") === 0) return p.prizes[i];
+    }
+    return p.prizes[0];
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(
+        function () { return true; },
+        function () { return fallbackCopy(text); }
+      );
+    }
+    return Promise.resolve(fallbackCopy(text));
   }
 
   function fallbackCopy(text) {
@@ -84,30 +143,27 @@
     return ok;
   }
 
-  function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(text).then(
-        function () { return true; },
-        function () { return fallbackCopy(text); }
-      );
-    }
-    return Promise.resolve(fallbackCopy(text));
-  }
-
-  function cardInfoText(card) {
+  function productInfoText(p) {
     var lines = [];
-    lines.push("[" + (SITE_CONFIG.shopName || "CARD VAULT") + " 구매 문의]");
-    lines.push("카드: " + card.name + (card.nameEn ? " (" + card.nameEn + ")" : ""));
-    var setLine = card.setName || "";
-    if (card.setCode || card.cardNumber) {
-      setLine += " · " + [card.setCode, card.cardNumber].filter(Boolean).join(" ");
+    var isOripa = p.type === "oripa";
+    lines.push("[" + SITE_CONFIG.shopName + (isOripa ? " 오리파 참여 문의]" : " 구매 문의]"));
+    lines.push("상품: " + p.name);
+    lines.push("구분: " + typeOf(p).label);
+    var setLine = p.series || "";
+    if (p.setCode) setLine += " (" + p.setCode + ")";
+    if (setLine) lines.push("시리즈: " + setLine);
+    lines.push("판본: " + langOf(p));
+    if (isOripa) {
+      lines.push("가격: " + won(p.price) + " / 1구");
+      lines.push("구성: " + stockText(p));
+      if (mainPrize(p)) lines.push(mainPrize(p).label + ": " + mainPrize(p).name);
+    } else {
+      if (p.shrink) lines.push("상태: " + (SHRINK[p.shrink] || ""));
+      lines.push("가격: " + won(p.price) + " / " + unitWord(p));
+      lines.push("수량: " + stockText(p));
+      if (p.unitNote) lines.push("비고: " + p.unitNote);
     }
-    if (setLine.trim()) lines.push("세트: " + setLine.trim());
-    if (card.language) lines.push("언어: " + card.language);
-    lines.push("등급: " + (card.grade || "-"));
-    if (card.cert) lines.push("인증번호: " + card.cert);
-    lines.push("가격: " + won(card.price));
-    lines.push("상태: " + ((STATUS[card.status] || {}).label || "판매중"));
+    lines.push("판매 상태: " + (STATUS[p.status] || STATUS.available).label);
     return lines.join("\n");
   }
 
@@ -123,54 +179,42 @@
       '<span class="toast__icon" aria-hidden="true">' + icon + "</span>" +
       '<span class="toast__msg">' + esc(message) + "</span>";
     stack.appendChild(el);
-    var ms = kind === "warn" ? 4600 : 3000;
     setTimeout(function () {
       el.classList.add("toast--out");
       setTimeout(function () { el.remove(); }, 260);
-    }, ms);
+    }, kind === "warn" ? 4600 : 3000);
   }
 
   /* ── 아트 마크업 ──────────────────────────────────────── */
-  function artMarkup(card, opts) {
-    opts = opts || {};
-    var c1 = card.c1 || "#1b2233";
-    var c2 = card.c2 || "#3b4a63";
-    var accent = card.accent || "#ffffff";
+  function artMarkup(p) {
     var style =
-      "--c1:" + c1 + ";--c2:" + c2 + ";--accent:" + accent + ";";
-    var img = card.image
-      ? '<img class="art__img" src="' + esc(card.image) + '" alt="' + esc(card.name) + ' 카드 사진" loading="lazy" />'
+      "--c1:" + (p.c1 || "#1b2233") + ";--c2:" + (p.c2 || "#3b4a63") +
+      ";--accent:" + (p.accent || "#ffffff") + ";";
+    var img = p.image
+      ? '<img class="art__img" src="' + esc(p.image) + '" alt="' + esc(p.name) + ' 사진" loading="lazy" />'
       : "";
-    var inner = opts.simple
-      ? img +
-        '<span class="art__glyph" aria-hidden="true">' + esc(card.glyph || "🃏") + "</span>"
-      : img +
-        '<span class="art__noise"></span>' +
-        '<span class="art__holo"></span>' +
-        '<span class="art__sheen"></span>' +
-        '<span class="art__frame"></span>' +
-        '<span class="art__glyph" aria-hidden="true">' + esc(card.glyph || "🃏") + "</span>" +
-        '<span class="art__label">' + esc(card.name) + "</span>" +
-        '<span class="art__tags">' +
-        '<span class="art__game" data-game="' + esc(card.game) + '">' +
-        esc(GAME_LABEL[card.game] || "") +
-        "</span>" +
-        (card.sample ? '<span class="art__sample">SAMPLE</span>' : "") +
-        "</span>";
-    return '<div class="art" style="' + style + '">' + inner + "</div>";
+    return (
+      '<div class="art" style="' + style + '">' +
+      img +
+      '<span class="art__noise"></span>' +
+      '<span class="art__holo"></span>' +
+      '<span class="art__sheen"></span>' +
+      '<span class="art__frame"></span>' +
+      '<span class="art__glyph" aria-hidden="true">' + esc(p.glyph || "📦") + "</span>" +
+      '<span class="art__label">' + esc(p.name) + "</span>" +
+      '<span class="art__tags">' +
+      '<span class="art__game" data-game="' + esc(p.game) + '">' + esc(GAME_LABEL[p.game] || "") + "</span>" +
+      (p.sample ? '<span class="art__sample">SAMPLE</span>' : "") +
+      "</span>" +
+      "</div>"
+    );
   }
 
   /* ── 필터 칩 ──────────────────────────────────────────── */
   function countFor(kind, key) {
-    return CARDS.filter(function (c) {
-      if (kind === "game") return key === "all" || c.game === key;
-      if (kind === "grade") {
-        if (key === "all") return true;
-        if (key === "RAWSEALED") return c.gradeBody === "RAW" || c.gradeBody === "SEALED";
-        return c.gradeBody === key;
-      }
-      if (kind === "status") return key === "all" || c.status === key;
-      return true;
+    return PRODUCTS.filter(function (p) {
+      if (key === "all") return true;
+      return p[kind === "lang" ? "language" : kind] === key;
     }).length;
   }
 
@@ -181,15 +225,10 @@
       host.innerHTML = filterDefs[kind]
         .map(function (f) {
           var pressed = state[kind] === f.key ? "true" : "false";
-          var n = countFor(kind, f.key);
           return (
-            '<button class="chip" type="button" role="button" aria-pressed="' +
-            pressed +
-            '" data-key="' +
-            esc(f.key) +
-            '">' +
-            esc(f.label) +
-            '<span class="chip__n">' + n + "</span></button>"
+            '<button class="chip" type="button" aria-pressed="' + pressed +
+            '" data-key="' + esc(f.key) + '">' + esc(f.label) +
+            '<span class="chip__n">' + countFor(kind, f.key) + "</span></button>"
           );
         })
         .join("");
@@ -201,30 +240,17 @@
     return String(s || "").toLowerCase().replace(/\s+/g, "");
   }
 
-  function matches(card) {
-    if (state.game !== "all" && card.game !== state.game) return false;
-    if (state.grade !== "all") {
-      if (state.grade === "RAWSEALED") {
-        if (card.gradeBody !== "RAW" && card.gradeBody !== "SEALED") return false;
-      } else if (card.gradeBody !== state.grade) return false;
-    }
-    if (state.status !== "all" && card.status !== state.status) return false;
+  function matches(p) {
+    if (state.game !== "all" && p.game !== state.game) return false;
+    if (state.type !== "all" && p.type !== state.type) return false;
+    if (state.lang !== "all" && p.language !== state.lang) return false;
+    if (state.status !== "all" && p.status !== state.status) return false;
     if (state.q) {
-      var hay = normalize(
-        [
-          card.name,
-          card.nameEn,
-          card.setName,
-          card.setCode,
-          card.cardNumber,
-          card.grade,
-          card.cert,
-          card.language,
-          GAME_LABEL[card.game],
-        ].join(" ")
+      var prizeNames = (p.prizes || []).map(function (x) { return x.name + " " + x.label; }).join(" ");
+      var pool = normalize(
+        [p.name, p.nameEn, p.series, p.setCode, langOf(p), typeOf(p).label, GAME_LABEL[p.game], prizeNames].join(" ")
       );
-      var terms = normalize(state.q).split(/[,]/).filter(Boolean);
-      var pool = hay + " ";
+      var terms = normalize(state.q).split(",").filter(Boolean);
       for (var i = 0; i < terms.length; i++) {
         if (pool.indexOf(terms[i]) === -1) return false;
       }
@@ -233,172 +259,172 @@
   }
 
   /* ── 카드 렌더 ────────────────────────────────────────── */
-  function cardMarkup(card, index) {
-    var st = STATUS[card.status] || STATUS.available;
-    var sold = card.status === "sold";
+  function cardMarkup(p, index) {
+    var st = STATUS[p.status] || STATUS.available;
+    var sold = p.status === "soldout";
+    var isOripa = p.type === "oripa";
+    var mp = mainPrize(p);
+
+    var actions = isOripa
+      ? '<button class="btn btn--ghost" type="button" data-action="detail">당첨 라인업</button>' +
+        (sold
+          ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
+          : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 참여 문의</button>')
+      : '<button class="btn btn--ghost" type="button" data-action="detail">상세</button>' +
+        (sold
+          ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
+          : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 문의</button>');
+
     return (
-      '<article class="card" data-status="' +
-      esc(card.status) +
-      '" data-id="' +
-      esc(card.id) +
-      '" style="animation-delay:' +
-      Math.min(index * 45, 360) +
-      'ms">' +
+      '<article class="card" data-status="' + esc(p.status) + '" data-type="' + esc(p.type) +
+      '" data-id="' + esc(p.id) + '" style="animation-delay:' + Math.min(index * 45, 360) + 'ms">' +
       '<div class="card__media">' +
-      artMarkup(card) +
-      '<span class="grade-badge" data-body="' + esc(card.gradeBody || "RAW") + '">' +
-      esc(card.grade || "-") +
-      "</span>" +
-      '<span class="status-badge" data-status="' + esc(card.status) + '">' +
-      esc(st.label) +
-      "</span>" +
+      artMarkup(p) +
+      '<span class="type-badge" data-type="' + esc(p.type) + '">' + esc(typeOf(p).label) + "</span>" +
+      '<span class="status-badge" data-status="' + esc(p.status) + '">' + esc(st.label) + "</span>" +
       "</div>" +
       '<div class="card__body">' +
-      '<h3 class="card__name">' + esc(card.name) + "</h3>" +
-      '<p class="card__set">' +
-      esc(card.setName || "") +
-      (card.cardNumber ? " · " + esc(card.cardNumber) : "") +
-      "</p>" +
+      '<h3 class="card__name">' + esc(p.name) + "</h3>" +
+      '<p class="card__set">' + esc(p.series || "") + (p.setCode ? " · " + esc(p.setCode) : "") + "</p>" +
+      '<p class="card__spec">' + esc(specText(p)) + "</p>" +
+      (isOripa && mp
+        ? '<p class="card__prize">🏆 <b>' + esc(mp.label) + "</b> " + esc(mp.name) + "</p>"
+        : "") +
       '<div class="card__price-row">' +
-      '<span class="card__price">' + won(card.price) + "</span>" +
-      (card.cert ? '<span class="card__cert">#' + esc(card.cert) + "</span>" : "") +
+      '<span class="card__price">' + won(p.price) + "</span>" +
+      '<span class="card__unit">/ ' + esc(unitWord(p)) + "</span>" +
       "</div>" +
-      '<div class="card__actions">' +
-      '<button class="btn btn--ghost" type="button" data-action="detail">상세</button>' +
-      (sold
-        ? '<button class="btn btn--kakao" type="button" disabled>판매완료</button>'
-        : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 문의</button>') +
-      "</div>" +
+      '<div class="card__actions">' + actions + "</div>" +
       "</div>" +
       "</article>"
     );
   }
 
   function render() {
-    var list = CARDS.filter(matches);
+    var list = PRODUCTS.filter(matches);
     list.sort(function (a, b) {
-      var sa = (STATUS[a.status] || STATUS.available).order;
-      var sb = (STATUS[b.status] || STATUS.available).order;
-      if (sa !== sb) return sa - sb;
-      return 0;
+      return (STATUS[a.status] || STATUS.available).order - (STATUS[b.status] || STATUS.available).order;
     });
 
     grid.innerHTML = list.map(cardMarkup).join("");
     grid.hidden = list.length === 0;
     emptyState.hidden = list.length !== 0;
-
-    resultCount.innerHTML =
-      list.length === 0
-        ? "검색 결과 <b>0</b>장"
-        : '<b>' + list.length + "</b> / " + CARDS.length + "장";
-
+    resultCount.innerHTML = '<b>' + list.length + "</b> / " + PRODUCTS.length + "개";
     searchClear.hidden = !state.q;
   }
 
   function updateStats() {
-    $("statTotal").textContent = CARDS.length;
-    $("statAvailable").textContent = CARDS.filter(function (c) {
-      return c.status === "available";
+    $("statTotal").textContent = PRODUCTS.length;
+    $("statAvailable").textContent = PRODUCTS.filter(function (p) {
+      return p.status === "available" || p.status === "low";
     }).length;
+    $("statOripa").textContent = PRODUCTS.filter(function (p) { return p.type === "oripa"; }).length;
   }
 
   /* ── 상세 모달 ────────────────────────────────────────── */
-  function detailMarkup(card) {
-    var st = STATUS[card.status] || STATUS.available;
-    var url = kakaoUrl();
-    var cert = card.cert || "";
-    var certUrl = lookupUrl(card);
-
+  function detailMarkup(p) {
+    var st = STATUS[p.status] || STATUS.available;
+    var isOripa = p.type === "oripa";
+    var hasUrl = !!kakaoUrl();
     var rows = [];
-    rows.push(['<dt>종목</dt>', "<dd>" + esc(card.game === "onepiece" ? "원피스 카드 게임" : "포켓몬 카드") + "</dd>"]);
-    rows.push(['<dt>세트</dt>', "<dd>" + esc(card.setName || "-") + (card.setCode ? " (" + esc(card.setCode) + ")" : "") + "</dd>"]);
-    if (card.cardNumber) rows.push(["<dt>카드 번호</dt>", "<dd>" + esc(card.cardNumber) + "</dd>"]);
-    if (card.language) rows.push(["<dt>언어</dt>", "<dd>" + esc(card.language) + "</dd>"]);
-    rows.push(["<dt>등급</dt>", "<dd>" + esc(card.grade || "-") + "</dd>"]);
-    if (cert) {
-      rows.push([
-        "<dt>인증번호</dt>",
-        "<dd>" +
-          (certUrl
-            ? '<a href="' + esc(certUrl) + '" target="_blank" rel="noopener noreferrer">' +
-              esc(cert) + " <span aria-hidden='true'>↗</span> 인증 조회</a>"
-            : esc(cert)) +
-          "</dd>",
-      ]);
+
+    rows.push(["종목", p.game === "onepiece" ? "원피스 카드 게임" : "포켓몬 카드"]);
+    rows.push(["구분", typeOf(p).label]);
+    rows.push(["시리즈", (p.series || "-") + (p.setCode ? " (" + p.setCode + ")" : "")]);
+    rows.push(["판본", langOf(p)]);
+
+    if (isOripa) {
+      rows.push(["1구 가격", won(p.price)]);
+      rows.push(["구성", stockText(p)]);
+    } else {
+      if (p.shrink) rows.push(["포장 상태", SHRINK[p.shrink] || "-"]);
+      rows.push(["수량", stockText(p)]);
+      if (p.unitNote) rows.push(["단위", p.unitNote]);
+      rows.push([unitWord(p) + "당 가격", won(p.price)]);
     }
-    rows.push(["<dt>상태</dt>", '<dd><span class="status-badge" data-status="' + esc(card.status) + '" style="position:static;display:inline-flex">' + esc(st.label) + "</span></dd>"]);
+    rows.push(["상태", '<span class="status-badge" data-status="' + esc(p.status) +
+      '" style="position:static;display:inline-flex">' + esc(st.label) + "</span>"]);
+
+    var lineup = "";
+    if (isOripa && p.prizes && p.prizes.length) {
+      lineup =
+        '<div class="lineup">' +
+        '<h3 class="lineup__title">당첨 라인업</h3>' +
+        '<ul class="lineup__list">' +
+        p.prizes.map(function (x) {
+          var main = x.label.indexOf("메인") === 0;
+          return '<li class="lineup__item' + (main ? " is-main" : "") + '">' +
+            '<span class="lineup__label">' + esc(x.label) + "</span>" +
+            '<span class="lineup__name">' + esc(x.name) + "</span></li>";
+        }).join("") +
+        "</ul>" +
+        (p.lineupNote ? '<p class="lineup__note">' + esc(p.lineupNote) + "</p>" : "") +
+        "</div>";
+    }
 
     return (
       '<div class="detail">' +
       '<div class="detail__art-wrap"><div class="detail__art" style="--c1:' +
-      esc(card.c1 || "#1b2233") +
-      ";--c2:" +
-      esc(card.c2 || "#3b4a63") +
-      ";--accent:" +
-      esc(card.accent || "#fff") +
-      '">' +
-      (card.image
-        ? '<img class="art__img" src="' + esc(card.image) + '" alt="' + esc(card.name) + ' 카드 사진" />'
+      esc(p.c1 || "#1b2233") + ";--c2:" + esc(p.c2 || "#3b4a63") + ";--accent:" + esc(p.accent || "#fff") + '">' +
+      (p.image
+        ? '<img class="art__img" src="' + esc(p.image) + '" alt="' + esc(p.name) + ' 사진" />'
         : '<span class="art__noise"></span><span class="art__holo" style="opacity:.7"></span><span class="art__frame"></span>') +
-      '<span class="art__glyph" aria-hidden="true">' + esc(card.glyph || "🃏") + "</span>" +
+      '<span class="art__glyph" aria-hidden="true">' + esc(p.glyph || "📦") + "</span>" +
       "</div></div>" +
       '<div class="detail__info">' +
       '<div class="detail__kind">' +
-      '<span class="badge badge--' + (card.game === "onepiece" ? "one" : "poke") + '">' +
-      esc(GAME_LABEL[card.game] || "") +
-      "</span>" +
-      '<span class="grade-badge" data-body="' + esc(card.gradeBody || "RAW") + '" style="position:static">' + esc(card.grade || "-") + "</span>" +
-      (card.sample ? '<span class="art__sample" style="position:static">SAMPLE</span>' : "") +
+      '<span class="badge badge--' + (p.game === "onepiece" ? "one" : "poke") + '">' +
+      esc(GAME_LABEL[p.game] || "") + "</span>" +
+      '<span class="type-badge" data-type="' + esc(p.type) + '" style="position:static">' + esc(typeOf(p).label) + "</span>" +
+      (p.sample ? '<span class="art__sample" style="position:static">SAMPLE</span>' : "") +
       "</div>" +
-      '<h2 class="detail__name" id="modalTitle">' + esc(card.name) + "</h2>" +
-      (card.nameEn ? '<p class="detail__name-en">' + esc(card.nameEn) + "</p>" : "") +
-      '<div class="detail__price"><strong>' + won(card.price) + "</strong><span>KRW</span></div>" +
-      "<dl>" + rows.map(function (r) { return r[0] + r[1]; }).join("") + "</dl>" +
-      (card.note ? '<p class="detail__note">' + esc(card.note) + "</p>" : "") +
+      '<h2 class="detail__name" id="modalTitle">' + esc(p.name) + "</h2>" +
+      (p.nameEn ? '<p class="detail__name-en">' + esc(p.nameEn) + "</p>" : "") +
+      '<div class="detail__price"><strong>' + won(p.price) + "</strong><span>/ " + esc(unitWord(p)) + " · KRW</span></div>" +
+      "<dl>" + rows.map(function (r) { return "<dt>" + esc(r[0]) + "</dt><dd>" + r[1] + "</dd>"; }).join("") + "</dl>" +
+      lineup +
+      (p.note ? '<p class="detail__note">' + esc(p.note) + "</p>" : "") +
       '<div class="detail__actions">' +
-      '<button class="btn btn--ghost" type="button" data-copy="' + esc(card.id) + '">카드 정보 복사하기</button>' +
-      '<button class="btn btn--kakao" type="button" data-inquire="' + esc(card.id) + '">오픈톡으로 구매 문의</button>' +
+      '<button class="btn btn--ghost" type="button" data-copy="' + esc(p.id) + '">정보 복사하기</button>' +
+      '<button class="btn btn--kakao" type="button" data-inquire="' + esc(p.id) + '">' +
+      (isOripa ? "오픈톡 참여 문의" : "오픈톡 구매 문의") + "</button>" +
       "</div>" +
-      '<p class="detail__hint">복사한 카드 정보를 오픈톡에 붙여넣으면 문의가 빠릅니다.</p>' +
-      (url
+      '<p class="detail__hint">복사한 정보를 오픈톡에 붙여넣으면 확인이 빠릅니다.</p>' +
+      (hasUrl
         ? ""
-        : '<p class="detail__warn">오픈톡 링크가 아직 연결되지 않았습니다. 문의 링크가 연결되면 이 버튼으로 바로 문의할 수 있습니다.</p>') +
+        : '<p class="detail__warn">오픈톡 링크가 아직 연결되지 않았습니다. 링크가 연결되면 이 버튼으로 바로 문의할 수 있습니다.</p>') +
       "</div></div>"
     );
   }
 
-  function openModal(card) {
+  function openModal(p) {
     var modal = $("detailModal");
-    $("modalBody").innerHTML = detailMarkup(card);
+    $("modalBody").innerHTML = detailMarkup(p);
     modal.hidden = false;
     document.body.classList.add("modal-open");
     lastFocused = document.activeElement;
     var closeBtn = modal.querySelector(".modal__close");
     if (closeBtn) closeBtn.focus();
-    if (history.replaceState) {
-      history.replaceState(null, "", "#" + card.id);
-    }
+    if (history.replaceState) history.replaceState(null, "", "#" + p.id);
   }
 
   function closeModal() {
     var modal = $("detailModal");
     if (modal.hidden) return;
     modal.hidden = true;
-    modal.querySelector(".modal__body").innerHTML = "";
+    $("modalBody").innerHTML = "";
     document.body.classList.remove("modal-open");
-    if (history.replaceState) {
-      history.replaceState(null, "", location.pathname + location.search);
-    }
+    if (history.replaceState) history.replaceState(null, "", location.pathname + location.search);
     if (lastFocused && lastFocused.focus) lastFocused.focus();
   }
 
-  function findCard(id) {
-    for (var i = 0; i < CARDS.length; i++) if (CARDS[i].id === id) return CARDS[i];
+  function findProduct(id) {
+    for (var i = 0; i < PRODUCTS.length; i++) if (PRODUCTS[i].id === id) return PRODUCTS[i];
     return null;
   }
 
   /* ── 문의 동작 ────────────────────────────────────────── */
-  function inquire(card) {
+  function inquire(p) {
     var url = kakaoUrl();
     if (!url) {
       toast(
@@ -407,18 +433,16 @@
       );
       return;
     }
-    if (card) {
-      // 카드 정보를 복사해 두면 붙여넣기만 하면 됩니다.
-      copyText(cardInfoText(card));
-      toast("카드 정보를 복사했습니다. 오픈톡에 붙여넣어 주세요.", "ok");
+    if (p) {
+      copyText(productInfoText(p));
+      toast("상품 정보를 복사했습니다. 오픈톡에 붙여넣어 주세요.", "ok");
     }
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
   /* ── 이벤트 연결 ──────────────────────────────────────── */
   function wire() {
-    /* 필터 칩 */
-    ["game", "grade", "status"].forEach(function (kind) {
+    ["game", "type", "lang", "status"].forEach(function (kind) {
       var host = document.querySelector('[data-filter="' + kind + '"]');
       if (!host) return;
       host.addEventListener("click", function (e) {
@@ -430,7 +454,6 @@
       });
     });
 
-    /* 검색 */
     var t = null;
     searchInput.addEventListener("input", function () {
       var v = searchInput.value;
@@ -447,9 +470,8 @@
       searchInput.focus();
     });
 
-    /* 초기화 */
     function reset() {
-      state = { game: "all", grade: "all", status: "all", q: "" };
+      state = { game: "all", type: "all", lang: "all", status: "all", q: "" };
       searchInput.value = "";
       buildChips();
       render();
@@ -457,23 +479,20 @@
     $("resetFilters").addEventListener("click", reset);
     $("emptyReset").addEventListener("click", reset);
 
-    /* 그리드 클릭 위임 */
     grid.addEventListener("click", function (e) {
       var cardEl = e.target.closest(".card");
       if (!cardEl) return;
-      var card = findCard(cardEl.getAttribute("data-id"));
-      if (!card) return;
+      var p = findProduct(cardEl.getAttribute("data-id"));
+      if (!p) return;
       var btn = e.target.closest("[data-action]");
       if (btn) {
         var action = btn.getAttribute("data-action");
-        if (action === "detail") { openModal(card); return; }
-        if (action === "inquire") { e.stopPropagation(); inquire(card); return; }
+        if (action === "detail") { openModal(p); return; }
+        if (action === "inquire") { e.stopPropagation(); inquire(p); return; }
       }
-      /* 카드 아트/본문 클릭 → 상세 */
-      if (!e.target.closest("button")) openModal(card);
+      if (!e.target.closest("button")) openModal(p);
     });
 
-    /* 아트 마우스 추적 (홀로그램 시인) */
     grid.addEventListener("pointermove", function (e) {
       var art = e.target.closest(".art");
       if (!art) return;
@@ -482,34 +501,31 @@
       art.style.setProperty("--my", ((e.clientY - r.top) / r.height) * 100 + "%");
     });
 
-    /* 상세 모달 내부 버튼 */
     $("modalBody").addEventListener("click", function (e) {
       var copyBtn = e.target.closest("[data-copy]");
       if (copyBtn) {
-        var c = findCard(copyBtn.getAttribute("data-copy"));
+        var c = findProduct(copyBtn.getAttribute("data-copy"));
         if (!c) return;
-        copyText(cardInfoText(c)).then(function (ok) {
-          toast(ok ? "카드 정보를 복사했습니다." : "복사에 실패했습니다. 길게 눌러 직접 복사해 주세요.", ok ? "ok" : "warn");
+        copyText(productInfoText(c)).then(function (ok) {
+          toast(ok ? "상품 정보를 복사했습니다." : "복사에 실패했습니다. 길게 눌러 직접 복사해 주세요.", ok ? "ok" : "warn");
         });
         return;
       }
       var inqBtn = e.target.closest("[data-inquire]");
       if (inqBtn) {
         var attr = inqBtn.getAttribute("data-inquire");
-        inquire(attr ? findCard(attr) : null);
+        inquire(attr ? findProduct(attr) : null);
       }
     });
 
-    /* 헤더/푸터/히어로 문의 버튼 */
     document.addEventListener("click", function (e) {
       var b = e.target.closest("[data-inquire]");
       if (!b) return;
-      if (b.closest("#modalBody")) return; // 모달 내부는 위에서 처리
+      if (b.closest("#modalBody")) return;
       var id = b.getAttribute("data-inquire");
-      inquire(id ? findCard(id) : null);
+      inquire(id ? findProduct(id) : null);
     });
 
-    /* 모달 닫기 */
     $("detailModal").addEventListener("click", function (e) {
       if (e.target.closest("[data-close]") || e.target.classList.contains("modal__backdrop")) {
         closeModal();
@@ -519,7 +535,6 @@
       if (e.key === "Escape") closeModal();
     });
 
-    /* 스티키 툴바 경계선 */
     var controls = document.querySelector(".controls");
     if (controls) {
       var onScroll = function () {
@@ -533,14 +548,13 @@
   /* ── 초기 렌더 ────────────────────────────────────────── */
   function applyConfig() {
     var c = SITE_CONFIG;
-    document.title = c.shopName + " — " + (c.tagline || "카드 컬렉션");
+    document.title = c.shopName + " — " + (c.tagline || "");
     $("shopName").textContent = c.shopName;
     $("shopNameKo").textContent = c.shopNameKo || "";
     $("intro").textContent = c.intro || "";
-    $("guideTitle").textContent = c.guideTitle || "거래 안내";
+    $("guideTitle").textContent = c.guideTitle || "진행 안내";
     $("guideIntro").textContent = c.guideIntro || "";
     $("guideNotice").textContent = c.guideNotice || "";
-    $("guideNotice").hidden = !c.guideNotice;
     $("footerShop").textContent = c.shopName;
     $("footerNote").textContent = c.footerNote || "";
 
@@ -557,11 +571,22 @@
       .join("");
 
     var banner = $("sampleBanner");
-    if (c.showSampleBanner && CARDS.some(function (x) { return x.sample; })) {
+    if (c.showSampleBanner && PRODUCTS.some(function (x) { return x.sample; })) {
       banner.hidden = false;
       $("sampleBannerText").textContent = c.sampleBannerText || "샘플 데이터입니다.";
     } else {
       banner.hidden = true;
+    }
+
+    /* 유튜브 라이브 버튼 (링크가 있을 때만) */
+    var yt = $("ytLink");
+    if (yt) {
+      if ((c.youtubeUrl || "").trim()) {
+        yt.href = c.youtubeUrl.trim();
+        yt.hidden = false;
+      } else {
+        yt.hidden = true;
+      }
     }
   }
 
@@ -578,10 +603,9 @@
     render();
     wire();
 
-    /* #card-id 로 들어오면 상세를 바로 연다 */
     if (location.hash && location.hash.length > 1) {
-      var c = findCard(location.hash.slice(1));
-      if (c) setTimeout(function () { openModal(c); }, 120);
+      var p = findProduct(location.hash.slice(1));
+      if (p) setTimeout(function () { openModal(p); }, 120);
     }
   }
 

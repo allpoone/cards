@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>ALL PO ONE — 포켓몬 · 원피스 카드 컬렉션</title>
-<meta name="description" content="ALL PO ONE(올포원) — 포켓몬 · 원피스 트레이딩 카드 컬렉션을 한 장씩 정리해 판매합니다. 등급·인증번호·가격을 확인하고 카카오톡 오픈톡으로 문의하세요." />
+<title>ALL PO ONE — 포켓몬 · 원피스 미개봉 박스 &amp; 오리파</title>
+<meta name="description" content="ALL PO ONE(올포원) — 포켓몬 · 원피스 미개봉 박스와 오리파를 유튜브 라이브로 실시간 개봉·판매합니다. 잔여 수량과 당첨 라인업을 확인하고 카카오톡 오픈톡으로 참여하세요." />
 <meta name="theme-color" content="#07080b" />
-<meta property="og:title" content="ALL PO ONE — 포켓몬 · 원피스 카드 컬렉션" />
-<meta property="og:description" content="ALL PO ONE(올포원) — 포켓몬 · 원피스 카드 컬렉션 정리 판매. 등급과 인증번호를 확인하고 오픈톡으로 문의하세요." />
+<meta property="og:title" content="ALL PO ONE — 포켓몬 · 원피스 미개봉 박스 &amp; 오리파" />
+<meta property="og:description" content="ALL PO ONE(올포원) — 미개봉 박스 &amp; 오리파. 유튜브 라이브로 실시간 개봉·판매합니다." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0d12'/%3E%3Crect x='16' y='10' width='32' height='44' rx='5' fill='none' stroke='%23e3c07a' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23e3c07a'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<a class="skip-link" href="#cards">카드 목록으로 건너뛰기</a>
+<a class="skip-link" href="#products">상품 목록으로 건너뛰기</a>
 
 <!-- 샘플 데이터 안내 (cards.js 의 showSampleBanner 로 끌 수 있음) -->
 <div class="sample-banner" id="sampleBanner" hidden>
@@ -51,36 +51,40 @@
 <main id="top">
   <!-- ── 히어로 ───────────────────────────────────────────── -->
   <section class="hero wrap">
-    <p class="hero__eyebrow">ALL PO ONE · COLLECTOR'S VAULT · 개인 컬렉션 정리 판매</p>
+    <p class="hero__eyebrow">ALL PO ONE · SEALED BOX &amp; ORIPA · 유튜브 라이브 개봉</p>
     <h1 class="hero__title">
-      한 장씩, 제대로 넘기는<br />
-      <span class="hero__title-em">카드 컬렉션</span>
+      뜯기 전에, 제대로 확인하는<br />
+      <span class="hero__title-em">미개봉 박스 &amp; 오리파</span>
     </h1>
     <p class="hero__desc" id="intro"></p>
 
     <div class="hero__stats">
       <div class="stat">
         <strong id="statTotal">0</strong>
-        <span>등록 카드</span>
+        <span>등록 상품</span>
       </div>
       <div class="stat">
         <strong id="statAvailable">0</strong>
         <span>판매중</span>
       </div>
       <div class="stat">
-        <strong>2</strong>
-        <span>종목</span>
+        <strong id="statOripa">0</strong>
+        <span>오리파</span>
       </div>
     </div>
 
     <div class="hero__cta">
-      <a class="btn btn--ghost" href="#cards">카드 둘러보기</a>
-      <button class="btn btn--kakao" type="button" data-inquire>오픈톡으로 구매 문의</button>
+      <a class="btn btn--ghost" href="#products">상품 둘러보기</a>
+      <button class="btn btn--kakao" type="button" data-inquire>오픈톡 참여 문의</button>
+      <a class="btn btn--yt" id="ytLink" href="#" target="_blank" rel="noopener noreferrer" hidden>
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M21.6 7.2c-.2-.9-.9-1.6-1.8-1.8C18 5 12 5 12 5s-6 0-7.8.4c-.9.2-1.6.9-1.8 1.8C2 9 2 12 2 12s0 3 .4 4.8c.2.9.9 1.6 1.8 1.8C6 19 12 19 12 19s6 0 7.8-.4c.9-.2 1.6-.9 1.8-1.8.4-1.8.4-4.8.4-4.8s0-3-.4-4.8zM10 15.5v-7l6 3.5-6 3.5z"/></svg>
+        유튜브 라이브
+      </a>
     </div>
   </section>
 
   <!-- ── 필터 & 검색 ──────────────────────────────────────── -->
-  <section class="wrap controls" id="cards" aria-label="카드 검색 및 필터">
+  <section class="wrap controls" id="products" aria-label="상품 검색 및 필터">
     <div class="controls__top">
       <div class="search">
         <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM16.5 16.5 21 21"/></svg>
@@ -89,8 +93,8 @@
           type="search"
           inputmode="search"
           autocomplete="off"
-          placeholder="카드명 · 세트 · 인증번호 검색"
-          aria-label="카드명, 세트, 인증번호 검색"
+          placeholder="박스명, 시리즈(예: 테라스탈, 500년 후의 미래), 오리파 이름 검색"
+          aria-label="박스명, 시리즈, 오리파 이름 검색"
         />
         <button class="search__clear" id="searchClear" type="button" aria-label="검색어 지우기" hidden>×</button>
       </div>
@@ -103,8 +107,12 @@
         <div class="chips" id="gameFilter" data-filter="game" role="group" aria-label="종목 필터"></div>
       </div>
       <div class="filter">
-        <span class="filter__label">등급</span>
-        <div class="chips" id="gradeFilter" data-filter="grade" role="group" aria-label="등급 필터"></div>
+        <span class="filter__label">유형</span>
+        <div class="chips" id="typeFilter" data-filter="type" role="group" aria-label="상품 유형 필터"></div>
+      </div>
+      <div class="filter">
+        <span class="filter__label">판본</span>
+        <div class="chips" id="langFilter" data-filter="lang" role="group" aria-label="판본 필터"></div>
       </div>
       <div class="filter">
         <span class="filter__label">상태</span>
@@ -114,21 +122,21 @@
     </div>
   </section>
 
-  <!-- ── 카드 그리드 ──────────────────────────────────────── -->
+  <!-- ── 상품 그리드 ──────────────────────────────────────── -->
   <section class="wrap grid-section">
     <div class="card-grid" id="cardGrid"></div>
     <div class="empty" id="emptyState" hidden>
-      <p class="empty__title">조건에 맞는 카드가 없습니다</p>
+      <p class="empty__title">조건에 맞는 상품이 없습니다</p>
       <p class="empty__desc">검색어를 줄이거나 필터를 초기화해 보세요.</p>
       <button class="btn btn--ghost btn--sm" type="button" id="emptyReset">필터 초기화</button>
     </div>
   </section>
 
-  <!-- ── 거래 안내 ────────────────────────────────────────── -->
+  <!-- ── 진행 안내 ────────────────────────────────────────── -->
   <section class="wrap guide" id="guide">
     <div class="guide__head">
       <p class="guide__eyebrow">HOW IT WORKS</p>
-      <h2 class="guide__title" id="guideTitle">거래 안내</h2>
+      <h2 class="guide__title" id="guideTitle">진행 안내</h2>
       <p class="guide__intro" id="guideIntro"></p>
     </div>
     <div class="guide__grid" id="guideGrid"></div>
