@@ -843,3 +843,12 @@ on conflict (id) do nothing;
 -- select * from private.shop_settings;
 -- select status, amount, order_no, raw_text, created_at from public.deposit_events order by created_at desc limit 20;
 -- ============================================================
+
+-- ============================================================
+-- 12. 설치 확인 — 자동 입금 확인 시크릿 (마지막에 실행)
+-- ------------------------------------------------------------
+-- 이 파일 전체를 [Run] 하면 아래 결과창에 deposit_secret 값이 바로 나옵니다.
+-- 그 값을 MacroDroid 의 p_secret 자리에 넣으면 됩니다.
+-- (값을 바꾸고 싶으면 update 로 바꾼 뒤 이 select 를 다시 실행하세요.)
+-- ============================================================
+select deposit_secret from private.shop_settings;

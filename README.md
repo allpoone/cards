@@ -141,12 +141,16 @@ bankAccount: {
    update private.shop_settings set admin_pin = '1234' where id = 1;
    ```
 
-4. **Project Settings → API** 의 `Project URL` 과 `anon public` 키를 `cards.js` 에 넣습니다.
+4. **Project Settings → API** 의 `Project URL` 과 공개 키(`publishable` 또는 예전 `anon public`)를 `cards.js` 에 넣습니다.
 
    ```js
    supabaseUrl: "https://xxxxxxxx.supabase.co",
-   supabaseAnonKey: "eyJhbGciOi...",
+   supabaseAnonKey: "sb_publishable_...",   // 예전 프로젝트는 "eyJhbGciOi..."
    ```
+
+   > `sb_publishable_...` 는 JWT 가 아닌 신형 공개 키입니다. `apikey` 헤더로는 그대로 동작하고,
+   > `store.js` 가 이 경우 `Authorization: Bearer <공개키>` 헤더를 자동으로 빼고 보냅니다.
+   > (예전 `eyJ...` anon 키는 지금처럼 `apikey` + `Authorization: Bearer` 를 함께 씁니다.)
 
 5. `./deploy.sh "Supabase 연동"` 으로 배포하면 파란 테스트 배너가 사라지고 실제 DB 로 저장됩니다.
 
@@ -191,6 +195,9 @@ Supabase **SQL Editor** 에서 실행하면 자동 입금 확인용 시크릿이
 select deposit_secret from private.shop_settings;
 ```
 
+> `supabase-schema.sql` 의 **맨 마지막 줄**이 이 쿼리입니다. 파일 전체를 [Run] 하면 결과창에
+> `deposit_secret` 값이 바로 나오니, 그 값을 복사해 두세요.
+
 바꾸고 싶으면:
 
 ```sql
@@ -202,9 +209,9 @@ update private.shop_settings set deposit_secret = '길고-복잡한-임의의-�
 ```
 POST https://<프로젝트>.supabase.co/rest/v1/rpc/auto_confirm_deposit
 headers:
-  apikey: <anon public key>
-  Authorization: Bearer <anon public key>
+  apikey: <공개 키>
   Content-Type: application/json
+  (Authorization: Bearer <공개 키>  ← eyJ... anon 키일 때만. sb_publishable_ 키는 넣지 않습니다.)
 body:
   {"p_notification_text": "홍길동 50,000원 입금", "p_secret": "<deposit_secret>"}
 ```
@@ -213,8 +220,7 @@ body:
 
 ```bash
 curl -s -X POST 'https://<프로젝트>.supabase.co/rest/v1/rpc/auto_confirm_deposit' \
-  -H 'apikey: <anon key>' \
-  -H 'Authorization: Bearer <anon key>' \
+  -H 'apikey: <공개 키>' \
   -H 'Content-Type: application/json' \
   -d '{"p_notification_text":"홍길동 50,000원 입금","p_secret":"<deposit_secret>"}'
 ```
@@ -227,7 +233,8 @@ curl -s -X POST 'https://<프로젝트>.supabase.co/rest/v1/rpc/auto_confirm_dep
    - URL: 위 주소
    - Content-Type: `application/json`
    - Body: `{"p_notification_text":"[알림 텍스트 변수]","p_secret":"<deposit_secret>"}`
-   - 헤더: `apikey`, `Authorization: Bearer <anon key>`
+   - 헤더: `apikey` 만 (`sb_publishable_...` 키) · `Content-Type: application/json`
+     - 예전 `eyJ...` anon 키를 쓴다면 `Authorization: Bearer <anon key>` 도 함께
 3. 알림 텍스트 변수는 MacroDroid 의 `알림 제목/내용` 매직 텍스트를 그대로 넣으면 됩니다.
 
 ### 4) 응답과 안전장치

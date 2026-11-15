@@ -51,14 +51,14 @@ const SITE_CONFIG = {
     "입금 확인 후 순차 발송합니다. 발송 시 주문 조회 화면에서 [발송완료]로 확인하실 수 있습니다.",
 
   /* ---- Supabase 연동 (선택) --------------------------------------
-     Supabase 프로젝트의 Project URL 과 anon public key 를 넣으면
+     Supabase 프로젝트의 Project URL 과 공개 키(publishable / anon)를 넣으면
      주문·재고가 실제 DB에 저장되고 관리자 페이지와 실시간으로 맞춰집니다.
      (설정 방법은 supabase-schema.sql 과 README.md 참고)
      예) supabaseUrl: "https://abcdefgh.supabase.co",
-         supabaseAnonKey: "eyJhbGciOi...",
+         supabaseAnonKey: "sb_publishable_..."   (구버전 프로젝트는 "eyJhbGciOi...")
      비워 두면 테스트 모드(localStorage)로 동작합니다. */
-  supabaseUrl: "",
-  supabaseAnonKey: "",
+  supabaseUrl: "https://mibkujlbkjkvyuugepbp.supabase.co",
+  supabaseAnonKey: "sb_publishable_xXLUpB6ZBqggfyUOUIAZiQ_tySi4MNJ",
 
   /* ---- 사장님 페이지(admin.html) 잠금 PIN --------------------------
      기본값 0000. 배포 후 반드시 다른 숫자로 바꿔 주세요.

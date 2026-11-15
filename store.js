@@ -419,10 +419,46 @@
     });
   }
 
+  /* 공개 키 형식 확인
+     · sb_publishable_... : Supabase 신형 공개 키 (JWT 아님)
+     · eyJ...            : 예전 anon 키 (JWT) */
+  function isJwtKey(key) {
+    return /^ey[A-Za-z0-9_-]+\./.test(String(key || ""));
+  }
+
+  /* supabase-js 는 기본적으로 `apikey` 와 `Authorization: Bearer <key>` 를
+     같이 보냅니다. 하지만 sb_publishable_ 키는 JWT 가 아니라서
+     Authorization 헤더에 넣으면 PostgREST 가 거절할 수 있습니다.
+     → Authorization 이 "Bearer <공개키 그대로>" 일 때만 지우고 apikey 만 남깁니다.
+       (로그인 세션 토큰 등 다른 Authorization 값은 그대로 둡니다.) */
+  function dbFetch(input, init) {
+    if (init && init.headers && !isJwtKey(dbKey)) {
+      try {
+        var h = new Headers(init.headers);
+        if (h.get("Authorization") === "Bearer " + dbKey) h.delete("Authorization");
+        var next = {};
+        for (var k in init) {
+          if (Object.prototype.hasOwnProperty.call(init, k)) next[k] = init[k];
+        }
+        next.headers = h;
+        return window.fetch(input, next);
+      } catch (e) {
+        /* Headers 를 못 다루는 환경이면 그대로 진행 */
+      }
+    }
+    return window.fetch(input, init);
+  }
+
+  function makeClient() {
+    return window.supabase.createClient(dbUrl, dbKey, {
+      global: { fetch: dbFetch },
+    });
+  }
+
   function connectDb() {
     if (db) return Promise.resolve(db);
     if (window.supabase && window.supabase.createClient) {
-      db = window.supabase.createClient(dbUrl, dbKey);
+      db = makeClient();
       return Promise.resolve(db);
     }
     return loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js")
@@ -430,7 +466,7 @@
         if (!window.supabase || !window.supabase.createClient) {
           throw new Error("Supabase 클라이언트를 초기화하지 못했습니다.");
         }
-        db = window.supabase.createClient(dbUrl, dbKey);
+        db = makeClient();
         return db;
       });
   }
