@@ -1262,15 +1262,15 @@
       '<label for="authId">' +
       (isSignup
         ? '아이디 <span class="req">*</span>'
-        : '아이디 <span class="opt">(또는 관리자 이메일)</span> <span class="req">*</span>') +
+        : '아이디 <span class="req">*</span>') +
       "</label>" +
       '<input id="authId" type="text" inputmode="text" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="' +
         (isSignup ? "20" : "80") + '" placeholder="' +
-        (isSignup ? "영문·숫자 4~20자" : "아이디 (또는 관리자 이메일)") + '" />' +
+        (isSignup ? "영문·숫자 4~20자" : "아이디 입력") + '" />' +
       '<p class="field__hint">' +
       (isSignup
         ? "영문 소문자·숫자·_·- 4~20자. @(이메일)는 쓸 수 없습니다."
-        : "손님은 아이디로, 사장님은 관리자 이메일로 로그인합니다.") +
+        : "가입하신 아이디로 로그인해 주세요.") +
       "</p>" +
       '<p class="field__err" data-err="authId" hidden></p>' +
       "</div>" +
@@ -1282,8 +1282,8 @@
       (isSignup
         ? '<div class="auth__grid">' +
           '<div class="field">' +
-          '<label for="authName">이름 <span class="opt">(선택)</span></label>' +
-          '<input id="authName" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" />' +
+          '<label for="authName">이름 <span class="req">*</span></label>' +
+          '<input id="authName" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" required aria-required="true" />' +
           "</div>" +
           '<div class="field">' +
           '<label for="authPhone">휴대폰 번호 <span class="req">*</span></label>' +
@@ -1399,7 +1399,7 @@
 
     setAuthError("");
     if (!loginRaw) {
-      setAuthError(isSignup ? "아이디를 입력해 주세요." : "아이디(또는 관리자 이메일)를 입력해 주세요.");
+      setAuthError("아이디를 입력해 주세요.");
       if ($("authId")) $("authId").focus();
       return;
     }
@@ -1430,6 +1430,11 @@
     var phone = $("authPhone") ? digits($("authPhone").value) : "";
 
     if (isSignup) {
+      if (!name) {
+        setAuthError("이름을 입력해 주세요.");
+        if ($("authName")) $("authName").focus();
+        return;
+      }
       if (!phone) {
         setAuthError("휴대폰 번호를 입력해 주세요.");
         if ($("authPhone")) $("authPhone").focus();
