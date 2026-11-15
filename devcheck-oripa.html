@@ -93,6 +93,17 @@ try {
 }
 
 await runFile('supabase-schema.sql', 'schema');
+
+/* 검증용: 디스코드 알림 스텁 (운영 DB에는 이미 있음) */
+try {
+  await pg.exec(`
+create table if not exists private.discord_log (id bigserial primary key, message text, created_at timestamptz default now());
+create or replace function private.notify_discord(p_message text) returns void language plpgsql security definer as $f$
+begin insert into private.discord_log (message) values (p_message); end $f$;
+`);
+  result.sql.discord_stub = 'ok';
+} catch (e) { result.errors.push('discord stub: ' + e.message); }
+
 await runFile('supabase-patch-oripa-seats.sql', 'patch1');
 await runFile('supabase-patch-oripa-seats-2.sql', 'patch2');
 /* 멱등성: 두 번째 실행 */

@@ -136,6 +136,14 @@ alter table public.products add column if not exists image_url text;
 alter table public.products add column if not exists edition   text;
 -- 상품별 적립금 지급 여부 (기본 ON)
 alter table public.products add column if not exists earn_points boolean not null default true;
+-- 상품별 적립률(%) — 비어 있으면(NULL) 상점 기본 적립률
+alter table public.products add column if not exists point_rate numeric(5,2) default null;
+alter table public.products drop constraint if exists products_point_rate_check;
+alter table public.products
+  add constraint products_point_rate_check
+  check (point_rate is null or point_rate between 0 and 50);
+-- 상품 숨김(비공개) — 손님 화면에서만 감춥니다
+alter table public.products add column if not exists is_hidden boolean not null default false;
 
 -- 분류·종목 값 확장 (기존 제약을 지우고 → 값 옮기고 → 새 제약을 답니다)
 alter table public.products drop constraint if exists products_type_check;
@@ -224,6 +232,13 @@ create table if not exists public.order_items (
   qty           integer not null check (qty > 0),
   line_total    integer not null check (line_total >= 0)
 );
+
+-- 주문 상품 줄은 상품을 지워도 영수증 기록(이름·가격·수량)이 남도록
+alter table public.order_items alter column product_id drop not null;
+alter table public.order_items drop constraint if exists order_items_product_id_fkey;
+alter table public.order_items
+  add constraint order_items_product_id_fkey
+  foreign key (product_id) references public.products (id) on delete set null;
 
 create index if not exists order_items_order_idx on public.order_items (order_id);
 create index if not exists order_items_product_idx on public.order_items (product_id);
