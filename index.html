@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="logo.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160401" />
+<link rel="stylesheet" href="styles.css?v=202611160406" />
 </head>
 <body class="auth-pending">
 <a class="skip-link" href="#products">상품 목록으로 건너뛰기</a>
@@ -67,12 +67,13 @@
         </button>
         <!-- 로그인 후 헤더에는 보유 적립금 배지만 (숫자·단위 색 구분). 로그아웃은 마이페이지 안에 있습니다. -->
         <span class="header-user" id="headerUser" hidden>
-          <button class="header-points" type="button" id="headerPoints" hidden="hidden" aria-label="내 적립금 내역 보기" title="보유 적립금 — 눌러서 적립금 내역 보기"><span class="pt-num">0</span><span class="pt-unit">P</span></button>
+          <!-- 적립금 배지는 보기 전용입니다 (누르면 아무 창도 열리지 않음). -->
+          <span class="header-points" id="headerPoints" hidden="hidden" title="보유 적립금"><span class="pt-num">0</span><span class="pt-unit">P</span></span>
         </span>
       </div>
 
       <button class="icon-btn icon-btn--mypage" type="button" id="mypageBtn" aria-label="마이페이지" title="마이페이지 — 내 정보 · 주문 내역 · 적립금">
-        <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M4 5h16v14H4zM4 9.2h16M8.4 13.4h3.2M8.4 16.4h6"/></svg>
+        <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="9.9" r="2.7"/><path d="M6.9 18.3c0-2.5 2.3-4.1 5.1-4.1s5.1 1.6 5.1 4.1"/></g></svg>
         <span class="icon-btn__label">마이페이지</span>
       </button>
 
@@ -246,9 +247,9 @@
 <!-- ── 토스트 ─────────────────────────────────────────────── -->
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160401"></script>
-<script src="store.js?v=202611160401"></script>
-<script src="app.js?v=202611160401"></script>
-<script src="shop.js?v=202611160401"></script>
+<script src="cards.js?v=202611160406"></script>
+<script src="store.js?v=202611160406"></script>
+<script src="app.js?v=202611160406"></script>
+<script src="shop.js?v=202611160406"></script>
 </body>
 </html>

@@ -1170,7 +1170,7 @@
     if (cached) {
       el.innerHTML = ptsHtml(cached.balance);
       el.hidden = false;
-      el.title = "보유 적립금 " + pts(cached.balance) + " · 눌러서 적립금 내역 보기";
+      el.title = "보유 적립금 " + pts(cached.balance);
       return;
     }
     el.innerHTML = '<span class="pt-num">…</span><span class="pt-unit">P</span>';
@@ -1179,7 +1179,7 @@
       s.myPoints().then(function (p) {
         if (!currentUser()) return;
         el.innerHTML = ptsHtml(p.balance);
-        el.title = "보유 적립금 " + pts(p.balance) + " · 눌러서 적립금 내역 보기";
+        el.title = "보유 적립금 " + pts(p.balance);
         if ($("authPointsBalance")) fillAuthPoints(p);
       }).catch(function () {
         /* 업그레이드 전 DB → 배지는 숨김 */
@@ -2090,14 +2090,6 @@
       if (mpMode) {
         e.preventDefault();
         setMpLookupMode(mpMode.getAttribute("data-mp-mode"));
-        return;
-      }
-      if (t.closest("#headerPoints")) {
-        e.preventDefault();
-        closeEl($("authModal"));
-        closeEl($("checkoutModal"));
-        closeCart();
-        openMypage("points");
         return;
       }
       var authOpen = t.closest("[data-auth-open]");

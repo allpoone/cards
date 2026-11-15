@@ -2031,7 +2031,7 @@ body.auth-pending #headerUser { visibility: hidden; }
    적립금(포인트)
    ============================================================ */
 
-/* 헤더 보유 적립금 배지 — 금색 테마, 숫자와 단위(P) 색 구분 */
+/* 헤더 보유 적립금 배지 — 금색 테마, 숫자와 단위(P) 색 구분. 보기 전용(클릭 없음). */
 .header-points {
   display: inline-flex;
   align-items: baseline;
@@ -2047,13 +2047,9 @@ body.auth-pending #headerUser { visibility: hidden; }
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
   white-space: nowrap;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-}
-.header-points:hover {
-  background: rgba(227, 192, 122, 0.22);
-  border-color: rgba(227, 192, 122, 0.82);
-  transform: translateY(-1px);
+  cursor: default;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .header-points[hidden] { display: none; }
 
