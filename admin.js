@@ -89,6 +89,13 @@
     var banner = $("demoBanner");
     var text = $("demoBannerText");
     if (!s || !banner) return;
+    /* 주문 없을 때 안내 문구도 모드에 맞춥니다. */
+    var emptyDesc = $("orderEmptyDesc");
+    if (emptyDesc) {
+      emptyDesc.textContent = s.isDemo()
+        ? "손님이 주문하면 이곳에 바로 표시됩니다. (같은 브라우저 테스트 모드 기준)"
+        : "손님이 주문하면 이곳에 바로 표시됩니다. (실시간 DB 기준)";
+    }
     if (s.isDemo()) {
       if (text) {
         text.textContent = s.dbError() && s.configured
