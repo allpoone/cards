@@ -1,0 +1,229 @@
+/* ============================================================
+   ALL PO ONE — admin.css (사장님 페이지)
+   styles.css 의 색·버튼·배지 규칙을 그대로 이어 씁니다.
+   ============================================================ */
+
+.admin-body { padding-bottom: 60px; }
+.admin-main { padding-top: clamp(20px, 4vw, 36px); }
+
+.btn--danger {
+  background: rgba(255, 90, 78, 0.12);
+  border-color: rgba(255, 90, 78, 0.4);
+  color: #ffb3ab;
+}
+.btn--danger:hover { background: rgba(255, 90, 78, 0.22); border-color: rgba(255, 90, 78, 0.65); }
+
+/* ── 잠금 화면 ──────────────────────────────────────────── */
+.lock {
+  min-height: min(62vh, 520px);
+  display: grid;
+  place-items: center;
+  padding: 20px 0 40px;
+}
+.lock__card {
+  width: min(420px, 100%);
+  padding: 26px 22px 22px;
+  border-radius: 20px;
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, #12151d, #0a0c11);
+  box-shadow: var(--shadow);
+}
+.lock__eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  font-weight: 800;
+  color: var(--gold);
+}
+.lock__title { margin: 0 0 6px; font-size: 1.3rem; font-weight: 850; }
+.lock__desc { margin: 0 0 18px; font-size: 0.82rem; color: var(--text-dim); line-height: 1.6; }
+.lock__form { display: grid; gap: 8px; margin-bottom: 14px; }
+.lock__label { font-size: 0.74rem; color: var(--text-dim); font-weight: 650; }
+.lock__input {
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 1.1rem;
+  letter-spacing: 0.35em;
+  text-align: center;
+  font-weight: 700;
+}
+.lock__input:focus {
+  outline: none;
+  border-color: rgba(227, 192, 122, 0.7);
+  box-shadow: 0 0 0 3px rgba(227, 192, 122, 0.14);
+}
+.lock__error { margin: 0; font-size: 0.76rem; color: #ff9c93; }
+.lock__hint { margin: 0 0 8px; font-size: 0.72rem; color: var(--text-faint); line-height: 1.6; }
+.lock__hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--gold-soft);
+}
+.lock__warn {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+
+/* ── 요약 ───────────────────────────────────────────────── */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+@media (min-width: 720px) {
+  .admin-stats { grid-template-columns: repeat(4, 1fr); }
+}
+.admin-stat {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+}
+.admin-stat__label { display: block; font-size: 0.7rem; color: var(--text-faint); letter-spacing: 0.03em; margin-bottom: 4px; }
+.admin-stat strong { font-size: 1.5rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+.admin-stat--money strong { font-size: 1.15rem; color: var(--gold-soft); }
+
+/* ── 패널 ───────────────────────────────────────────────── */
+.panel {
+  margin-bottom: 22px;
+  padding: 18px 16px 20px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.018);
+}
+@media (min-width: 720px) { .panel { padding: 22px 22px 24px; } }
+.panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.panel__title { margin: 0 0 4px; font-size: 1.06rem; font-weight: 820; }
+.panel__desc { margin: 0; font-size: 0.76rem; color: var(--text-faint); line-height: 1.55; max-width: 60ch; }
+
+.filters--admin { margin-bottom: 14px; }
+.filters--admin .chips { width: 100%; }
+
+/* ── 주문 카드 ──────────────────────────────────────────── */
+.aorder-list { display: grid; gap: 10px; }
+.aorder {
+  padding: 13px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.22);
+}
+.aorder[data-status="pending"] { border-color: rgba(255, 176, 32, 0.42); box-shadow: inset 3px 0 0 rgba(255, 176, 32, 0.65); }
+.aorder[data-status="paid"] { border-color: rgba(61, 220, 151, 0.34); }
+.aorder[data-status="cancelled"] { opacity: 0.66; }
+.aorder__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.aorder__id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aorder__no { font-size: 0.9rem; font-weight: 850; letter-spacing: 0.03em; font-variant-numeric: tabular-nums; }
+.aorder__time { font-size: 0.68rem; color: var(--text-faint); }
+.aorder__items { margin: 0 0 10px; padding: 0; list-style: none; display: grid; gap: 4px; }
+.aorder__items li { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: var(--text-dim); }
+.aorder__items em { font-style: normal; color: var(--text-faint); }
+.aorder__items b { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aorder__total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px dashed var(--line-strong);
+  border-bottom: 1px dashed var(--line-strong);
+  margin-bottom: 9px;
+}
+.aorder__total span { font-size: 0.76rem; color: var(--text-dim); }
+.aorder__total strong { font-size: 1rem; font-weight: 850; color: var(--gold-soft); font-variant-numeric: tabular-nums; }
+.aorder__info { display: grid; grid-template-columns: 56px 1fr; gap: 4px 10px; margin: 0 0 11px; }
+.aorder__info dt { font-size: 0.7rem; color: var(--text-faint); }
+.aorder__info dd { margin: 0; font-size: 0.78rem; color: var(--text-dim); word-break: break-word; }
+.aorder__info a { color: var(--gold-soft); text-decoration: none; }
+.aorder__dep { color: var(--gold-soft); font-weight: 700; }
+.aorder__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.aorder__done { font-size: 0.74rem; color: var(--text-faint); }
+
+/* ── 재고 ───────────────────────────────────────────────── */
+.stock-list { display: grid; gap: 8px; }
+.stock-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "name state"
+    "ctrl ctrl";
+  gap: 8px 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+}
+@media (min-width: 720px) {
+  .stock-row {
+    grid-template-columns: 1fr auto auto;
+    grid-template-areas: "name ctrl state";
+  }
+}
+.stock-row__name { grid-area: name; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stock-row__title { font-size: 0.84rem; font-weight: 700; }
+.stock-row__meta { font-size: 0.68rem; color: var(--text-faint); }
+.stock-row__ctrl { grid-area: ctrl; display: flex; align-items: center; gap: 5px; }
+.stock-row__input {
+  width: 62px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 750;
+  text-align: center;
+}
+.stock-row__state {
+  grid-area: state;
+  justify-self: start;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  border: 1px solid var(--line-strong);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.stock-row__state[data-status="available"] { color: #6ff0bb; border-color: rgba(61, 220, 151, 0.4); background: rgba(61, 220, 151, 0.1); }
+.stock-row__state[data-status="low"] { color: #ffc76b; border-color: rgba(255, 176, 32, 0.4); background: rgba(255, 176, 32, 0.1); }
+.stock-row__state[data-status="soldout"] { color: #c2c8d4; border-color: var(--line-strong); background: rgba(255, 255, 255, 0.05); }
+
+/* ── 빈 상태 · 푸터 ────────────────────────────────────── */
+.admin-empty {
+  padding: 40px 16px;
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+}
+.admin-empty p { margin: 0 0 6px; font-size: 0.86rem; font-weight: 700; }
+.admin-empty__desc { font-weight: 400 !important; font-size: 0.74rem !important; color: var(--text-faint); }
+.admin-foot { margin: 0; font-size: 0.72rem; color: var(--text-faint); text-align: center; line-height: 1.7; }
+.admin-foot b { color: var(--text-dim); }

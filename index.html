@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>ALL PO ONE — 포켓몬 · 원피스 미개봉 박스 &amp; 오리파</title>
-<meta name="description" content="ALL PO ONE(올포원) — 포켓몬 · 원피스 미개봉 박스와 오리파를 유튜브 라이브로 실시간 개봉·판매합니다. 잔여 수량과 당첨 라인업을 확인하고 카카오톡 오픈톡으로 참여하세요." />
+<meta name="description" content="ALL PO ONE(올포원) — 포켓몬 · 원피스 미개봉 박스와 오리파를 유튜브 라이브로 실시간 개봉·판매합니다. 잔여 수량과 당첨 라인업을 확인하고 장바구니에서 계좌이체로 주문하세요." />
 <meta name="theme-color" content="#07080b" />
 <meta property="og:title" content="ALL PO ONE — 포켓몬 · 원피스 미개봉 박스 &amp; 오리파" />
 <meta property="og:description" content="ALL PO ONE(올포원) — 미개봉 박스 &amp; 오리파. 유튜브 라이브로 실시간 개봉·판매합니다." />
@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="logo.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160040" />
+<link rel="stylesheet" href="styles.css?v=202611160052" />
 </head>
 <body>
 <a class="skip-link" href="#products">상품 목록으로 건너뛰기</a>
@@ -27,6 +27,12 @@
 <div class="sample-banner" id="sampleBanner" hidden>
   <span class="sample-banner__dot" aria-hidden="true"></span>
   <span id="sampleBannerText"></span>
+</div>
+
+<!-- DB 연동 전 테스트 모드 안내 (supabaseUrl 을 채우면 사라집니다) -->
+<div class="demo-banner" id="demoBanner" hidden>
+  <span class="demo-banner__tag">TEST</span>
+  <span id="demoBannerText">DB 연동 전 테스트 모드입니다. 지금 넣은 주문은 이 브라우저에만 저장됩니다.</span>
 </div>
 
 <header class="site-header">
@@ -44,9 +50,20 @@
         <button class="badge badge--poke" type="button" data-game-filter="pokemon" aria-pressed="false">Pokémon</button>
         <button class="badge badge--one" type="button" data-game-filter="onepiece" aria-pressed="false">One Piece</button>
       </div>
-      <button class="btn btn--kakao btn--sm" type="button" data-inquire>
+
+      <button class="icon-btn" type="button" data-open-lookup aria-label="내 주문 조회" title="내 주문 조회">
+        <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M4 5.5h16v13H4zM4 9h16M8 13h4"/></svg>
+      </button>
+
+      <button class="icon-btn icon-btn--cart" type="button" data-open-cart aria-label="장바구니 열기">
+        <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M3 4h2.2l2.3 11.2h10.3L20.5 7H6.2M9.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM17.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>
+        <span class="icon-btn__count" id="cartBadge" hidden>0</span>
+        <span class="icon-btn__total" id="cartHeaderTotal" hidden></span>
+      </button>
+
+      <button class="btn btn--kakao btn--sm header-kakao" type="button" data-inquire>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 3C6.9 3 2.8 6.2 2.8 10.2c0 2.6 1.6 4.8 4.1 6.1-.2.7-.7 2.5-.8 2.9 0 0-.1.4.2.5.3.1.5 0 .5 0 .6-.4 2.6-1.7 3.2-2.1.6.1 1.3.1 2 .1 5.1 0 9.2-3.2 9.2-7.2S17.1 3 12 3z"/></svg>
-        오픈톡 문의
+        <span class="header-kakao__label">오픈톡 문의</span>
       </button>
     </div>
   </div>
@@ -79,6 +96,8 @@
 
     <div class="hero__cta">
       <a class="btn btn--ghost" href="#products">상품 둘러보기</a>
+      <button class="btn btn--gold" type="button" data-open-cart>장바구니 보기</button>
+      <button class="btn btn--ghost" type="button" data-open-lookup>내 주문 조회</button>
       <button class="btn btn--kakao" type="button" data-inquire>오픈톡 참여 문의</button>
       <a class="btn btn--yt" id="ytLink" href="#" target="_blank" rel="noopener noreferrer" hidden>
         <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M21.6 7.2c-.2-.9-.9-1.6-1.8-1.8C18 5 12 5 12 5s-6 0-7.8.4c-.9.2-1.6.9-1.8 1.8C2 9 2 12 2 12s0 3 .4 4.8c.2.9.9 1.6 1.8 1.8C6 19 12 19 12 19s6 0 7.8-.4c.9-.2 1.6-.9 1.8-1.8.4-1.8.4-4.8.4-4.8s0-3-.4-4.8zM10 15.5v-7l6 3.5-6 3.5z"/></svg>
@@ -136,7 +155,7 @@
     </div>
   </section>
 
-  <!-- ── 진행 안내 ────────────────────────────────────────── -->
+  <!-- ── 주문 안내 ────────────────────────────────────────── -->
   <section class="wrap guide" id="guide">
     <div class="guide__head">
       <p class="guide__eyebrow">HOW IT WORKS</p>
@@ -154,7 +173,11 @@
       <strong id="footerShop"></strong>
       <p id="footerNote"></p>
     </div>
-    <button class="btn btn--kakao btn--sm" type="button" data-inquire>오픈톡 문의</button>
+    <div class="site-footer__actions">
+      <button class="btn btn--ghost btn--sm" type="button" data-open-lookup>내 주문 조회</button>
+      <button class="btn btn--kakao btn--sm" type="button" data-inquire>오픈톡 문의</button>
+      <a class="footer-admin" href="admin.html" rel="nofollow">사장님 페이지</a>
+    </div>
   </div>
 </footer>
 
@@ -167,10 +190,60 @@
   </div>
 </div>
 
+<!-- ── 장바구니 드로어 ─────────────────────────────────────── -->
+<div class="drawer" id="cartDrawer" hidden>
+  <div class="drawer__backdrop" data-close-cart></div>
+  <aside class="drawer__panel" role="dialog" aria-modal="true" aria-labelledby="cartTitle">
+    <header class="drawer__head">
+      <h2 class="drawer__title" id="cartTitle">장바구니 <span class="drawer__title-n" id="cartTitleCount"></span></h2>
+      <button class="icon-btn icon-btn--plain" type="button" data-close-cart aria-label="장바구니 닫기">×</button>
+    </header>
+    <div class="drawer__body" id="cartBody"></div>
+    <footer class="drawer__foot" id="cartFoot" hidden></footer>
+  </aside>
+</div>
+
+<!-- ── 주문서 · 완료 · 조회 모달 ───────────────────────────── -->
+<div class="modal" id="checkoutModal" hidden>
+  <div class="modal__backdrop" data-close-checkout></div>
+  <div class="modal__dialog modal__dialog--form" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
+    <button class="modal__close" type="button" data-close-checkout aria-label="닫기">×</button>
+    <div class="modal__body" id="checkoutBody"></div>
+  </div>
+</div>
+
+<div class="modal" id="doneModal" hidden>
+  <div class="modal__backdrop" data-close-done></div>
+  <div class="modal__dialog modal__dialog--form" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
+    <button class="modal__close" type="button" data-close-done aria-label="닫기">×</button>
+    <div class="modal__body" id="doneBody"></div>
+  </div>
+</div>
+
+<div class="modal" id="lookupModal" hidden>
+  <div class="modal__backdrop" data-close-lookup></div>
+  <div class="modal__dialog modal__dialog--form" role="dialog" aria-modal="true" aria-labelledby="lookupTitle">
+    <button class="modal__close" type="button" data-close-lookup aria-label="닫기">×</button>
+    <div class="modal__body" id="lookupBody"></div>
+  </div>
+</div>
+
+<!-- ── 모바일 하단 장바구니 바 ─────────────────────────────── -->
+<div class="cartbar" id="cartBar" hidden>
+  <button class="cartbar__btn" type="button" data-open-cart>
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" d="M3 4h2.2l2.3 11.2h10.3L20.5 7H6.2M9.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM17.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>
+    <span class="cartbar__count"><b id="cartBarCount">0</b>개</span>
+    <span class="cartbar__total" id="cartBarTotal">₩0</span>
+    <span class="cartbar__go">장바구니 보기</span>
+  </button>
+</div>
+
 <!-- ── 토스트 ─────────────────────────────────────────────── -->
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160040"></script>
-<script src="app.js?v=202611160040"></script>
+<script src="cards.js?v=202611160052"></script>
+<script src="store.js?v=202611160052"></script>
+<script src="app.js?v=202611160052"></script>
+<script src="shop.js?v=202611160052"></script>
 </body>
 </html>

@@ -2,9 +2,15 @@
    ALL PO ONE(올포원) — 설정 파일
    ------------------------------------------------------------
    사이트에서 바꾸고 싶은 내용은 전부 이 파일에서 바꾸면 됩니다.
-   1) SITE_CONFIG : 샵 이름, 오픈톡·유튜브 링크, 거래 안내 문구
-   2) PRODUCTS    : 판매 상품 목록 (미개봉 박스 / 오리파 / 싱글·기타)
+   1) SITE_CONFIG : 샵 이름, 오픈톡·유튜브 링크, 입금 계좌, 관리자 PIN, 거래 안내
+   2) PRODUCTS    : 판매 상품 목록 (미개봉 박스 / 오리파 / 싱글·기타) + 재고(stock)
    두 곳만 고치면 index.html 은 건드릴 필요가 없습니다.
+
+   ── 주문 시스템 안내 ──────────────────────────────────────
+   · 장바구니 → 계좌이체 주문 → 입금 확인 → 발송
+   · supabaseUrl / supabaseAnonKey 를 채우면 실제 DB에 주문·재고가 저장됩니다.
+   · 비워 두면 "DB 연동 전 테스트 모드"로 이 브라우저에만 저장되어
+     주문 흐름을 그대로 미리 테스트할 수 있습니다. (사장님 페이지와 같은 브라우저)
    ============================================================ */
 
 const SITE_CONFIG = {
@@ -26,6 +32,39 @@ const SITE_CONFIG = {
      채널/라이브 주소를 넣으면 상단에 [유튜브 라이브] 버튼이 생깁니다.
      예) youtubeUrl: "https://www.youtube.com/@allpoone/live",  */
   youtubeUrl: "",
+
+  /* ---- 계좌이체 입금 계좌 ----------------------------------------
+     은행 / 계좌번호 / 예금주를 채우면 주문 완료 화면에 바로 표시되고,
+     손님이 [계좌 복사] 버튼으로 그대로 복사할 수 있습니다.
+     예) bankAccount: { bank: "카카오뱅크", number: "3333-01-1234567", holder: "홍길동" },
+     비워 두면 "입금 계좌 준비 중" 안내가 뜹니다. */
+  bankAccount: {
+    bank: "",
+    number: "",
+    holder: "",
+  },
+
+  /* ---- 계좌이체 안내 문구 ---------------------------------------- */
+  transferNotice:
+    "입금 확인 후 주문 상태가 [입금완료]로 변경됩니다. 보통 영업일 기준 1일 이내에 확인하며, 입금자명이 다르면 오픈톡으로 알려 주세요.",
+  shippingNotice:
+    "입금 확인 후 순차 발송합니다. 발송 시 주문 조회 화면에서 [발송완료]로 확인하실 수 있습니다.",
+
+  /* ---- Supabase 연동 (선택) --------------------------------------
+     Supabase 프로젝트의 Project URL 과 anon public key 를 넣으면
+     주문·재고가 실제 DB에 저장되고 관리자 페이지와 실시간으로 맞춰집니다.
+     (설정 방법은 supabase-schema.sql 과 README.md 참고)
+     예) supabaseUrl: "https://abcdefgh.supabase.co",
+         supabaseAnonKey: "eyJhbGciOi...",
+     비워 두면 테스트 모드(localStorage)로 동작합니다. */
+  supabaseUrl: "",
+  supabaseAnonKey: "",
+
+  /* ---- 사장님 페이지(admin.html) 잠금 PIN --------------------------
+     기본값 0000. 배포 후 반드시 다른 숫자로 바꿔 주세요.
+     (PIN은 화면 잠금용입니다. 실제 서버 보안은 supabase-schema.sql 의
+      관리자 RLS 정책과 PIN 설정을 함께 사용하세요.) */
+  adminPin: "0000",
 
   /* ---- 샘플 데이터 안내 배너 ------------------------------------
      실제 상품으로 교체한 뒤에는 showSampleBanner: false 로 바꾸세요. */
@@ -84,12 +123,13 @@ const SITE_CONFIG = {
      language  : "JP"(일판) | "KR"(한판) | "EN"(영판)
      price     : 원 단위 숫자 (박스당 / 1구 / 1팩 가격)
      status    : "available"(판매중) | "low"(마감임박) | "soldout"(완판)
+     stock     : 현재 재고 수량 (장바구니 담기 가능 수량, 0이면 자동 품절)
      c1, c2    : 카드 아트 그라데이션 색 (앞/뒤)
      accent    : 아트 포인트 색
      glyph     : 아트에 크게 들어갈 글자/이모지
    박스(box) / 싱글(single) 추가 필드
      shrink    : "O"(슈링크 O) | "X"(슈링크 X) | "CARTON"(카톤)
-     remaining : 남은 수량 (박스/팩 단위)
+     remaining : 남은 수량 (박스/팩 단위) — stock 과 같게 맞춰 두세요.
      total     : 처음 수량 (선택)
      unitNote  : 수량 단위 설명 (예: "1카톤 = 12박스")
    오리파(oripa) 추가 필드
@@ -115,6 +155,7 @@ const PRODUCTS = [
     setCode: "SV8a",
     language: "JP",
     shrink: "O",
+    stock: 4,
     remaining: 4,
     total: 6,
     price: 320000,
@@ -136,6 +177,7 @@ const PRODUCTS = [
     setCode: "SV2a",
     language: "KR",
     shrink: "O",
+    stock: 2,
     remaining: 2,
     total: 3,
     price: 130000,
@@ -157,6 +199,7 @@ const PRODUCTS = [
     setCode: "OP-09",
     language: "JP",
     shrink: "O",
+    stock: 3,
     remaining: 3,
     total: 5,
     price: 165000,
@@ -178,6 +221,7 @@ const PRODUCTS = [
     setCode: "OP-07",
     language: "EN",
     shrink: "CARTON",
+    stock: 1,
     remaining: 1,
     total: 1,
     price: 1050000,
@@ -202,6 +246,7 @@ const PRODUCTS = [
     setCode: "S6a",
     language: "KR",
     price: 9900,
+    stock: 18,
     totalUnits: 50,
     remainingUnits: 18,
     status: "low",
@@ -228,6 +273,7 @@ const PRODUCTS = [
     setCode: "OP-05",
     language: "JP",
     price: 19900,
+    stock: 7,
     totalUnits: 30,
     remainingUnits: 7,
     status: "low",
@@ -254,6 +300,7 @@ const PRODUCTS = [
     setCode: "SV2a",
     language: "KR",
     price: 6900,
+    stock: 0,
     totalUnits: 40,
     remainingUnits: 0,
     status: "soldout",
@@ -280,6 +327,7 @@ const PRODUCTS = [
     series: "테라스탈 페스티벌 ex",
     setCode: "SV8a",
     language: "JP",
+    stock: 24,
     remaining: 24,
     price: 4500,
     status: "available",

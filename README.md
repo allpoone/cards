@@ -10,10 +10,14 @@
 
 | 파일 | 역할 |
 | --- | --- |
-| `index.html` | 페이지 구조 (보통 수정할 필요 없음) |
+| `index.html` | 손님 화면 구조 (보통 수정할 필요 없음) |
 | `styles.css` | 디자인 |
 | `cards.js` | **설정 + 상품 목록 — 여기만 고치면 됩니다** |
-| `app.js` | 화면 동작 (수정할 필요 없음) |
+| `store.js` | 재고 · 장바구니 · 주문 데이터 처리 (Supabase / localStorage) |
+| `app.js` | 상품 카드 · 상세 화면 동작 |
+| `shop.js` | 장바구니 · 주문서 · 입금 안내 · 주문 조회 화면 |
+| `admin.html` · `admin.js` · `admin.css` | **사장님 페이지** (주문 처리 · 재고 수정) |
+| `supabase-schema.sql` | Supabase 테이블 · RLS · RPC 함수 (DB 연동할 때 실행) |
 | `logo.png` | 가게 로고 원본 (1254×1254, og:image·apple-touch-icon 용) |
 | `logo-160.png` | 헤더·파비콘용 소형 로고 (160×160) |
 
@@ -48,7 +52,8 @@ youtubeUrl: "https://www.youtube.com/@채널/live",     // 라이브 주소
   setCode: "SV8a",
   language: "JP",              // JP | KR | EN
   shrink: "O",                 // O | X | CARTON
-  remaining: 4,                // 남은 수량
+  stock: 4,                    // 현재 재고 (장바구니 담기 가능 수량)
+  remaining: 4,                // 남은 수량 (stock 과 같게)
   price: 320000,               // 박스당 가격
   status: "available",         // available | low | soldout
   c1: "#1a1040", c2: "#7c3aed", accent: "#c4b5fd", glyph: "💎",
@@ -67,8 +72,9 @@ youtubeUrl: "https://www.youtube.com/@채널/live",     // 라이브 주소
   series: "신세계",
   language: "JP",
   price: 9900,                 // 1구 가격
+  stock: 18,                   // 현재 남은 구수
   totalUnits: 50,              // 총 구수
-  remainingUnits: 18,          // 남은 구수
+  remainingUnits: 18,          // 남은 구수 (stock 과 같게)
   status: "low",
   prizes: [
     { label: "메인 어타리", name: "루피 리더 패러렐 PSA 10" },
@@ -80,7 +86,8 @@ youtubeUrl: "https://www.youtube.com/@채널/live",     // 라이브 주소
 }
 ```
 
-`remainingUnits` 를 0으로 두면 자동으로 **완판** 표시되고 문의 버튼이 비활성화됩니다.
+`remainingUnits` 를 0으로 두면 자동으로 **완판** 표시되고 장바구니 담기가 막힙니다.
+주문이 들어가 재고가 0이 되면 사이트가 자동으로 품절 처리합니다.
 
 ### 3) 실물 사진 넣기
 
@@ -88,8 +95,87 @@ youtubeUrl: "https://www.youtube.com/@채널/live",     // 라이브 주소
 그라데이션 자리표시자 대신 사진이 표시됩니다. (권장 비율 5:7 세로)
 
 ### 4) 샘플 표시 끄기
+
 실제 상품으로 모두 교체한 뒤 `SITE_CONFIG.showSampleBanner` 를 `false` 로 바꾸고,
 각 상품의 `sample: true` 를 지웁니다.
+
+## 장바구니 · 계좌이체 주문
+
+손님은 상품 카드의 **[장바구니 담기]** → 헤더(모바일은 하단 바) 장바구니 →
+수량 조절 → **[주문하기]** → 주문서 작성 → **계좌이체로 주문하기** 순서로 주문합니다.
+
+- 품절·완판 상품은 담기 버튼이 비활성화되고, 남은 재고보다 많이 담을 수 없습니다.
+- 주문이 접수되면 `APO-YYYYMMDD-XXXX` 형식의 주문번호가 만들어지고 상태는 **입금대기**가 됩니다.
+- 손님은 **[내 주문 조회]** 에서 주문번호 또는 주문자명+연락처로 상태를 확인할 수 있습니다.
+  (`입금대기` → `입금완료` → `발송완료`, 또는 `취소됨`)
+
+### 1) 입금 계좌 넣기 (가장 먼저 할 일)
+
+`cards.js` 의 `SITE_CONFIG` 에서 세 줄만 채우면 주문 완료 화면에 바로 표시됩니다.
+
+```js
+bankAccount: {
+  bank: "카카오뱅크",
+  number: "3333-01-1234567",
+  holder: "예금주 이름",
+},
+```
+
+비워 두면 "계좌 정보 준비 중" 안내가 뜨고, 손님은 오픈톡으로 문의하게 됩니다.
+
+### 2) 테스트 모드 (지금 상태)
+
+`supabaseUrl` 이 비어 있으면 **DB 연동 전 테스트 모드**로 동작합니다.
+
+- 주문·재고·주문내역이 이 브라우저(localStorage)에만 저장됩니다.
+- 화면 위에 작은 파란 배너로 테스트 모드임을 안내합니다.
+- 같은 브라우저에서 `admin.html` 을 열면 방금 넣은 테스트 주문을 그대로 처리해 볼 수 있습니다.
+
+### 3) 실제 DB로 전환 (Supabase)
+
+1. [supabase.com](https://supabase.com) 에서 프로젝트를 만듭니다. (무료 플랜 가능)
+2. **SQL Editor** 에 `supabase-schema.sql` 전체를 붙여넣고 실행합니다.
+3. 관리자 PIN 을 바꿉니다.
+
+   ```sql
+   update private.shop_settings set admin_pin = '1234' where id = 1;
+   ```
+
+4. **Project Settings → API** 의 `Project URL` 과 `anon public` 키를 `cards.js` 에 넣습니다.
+
+   ```js
+   supabaseUrl: "https://xxxxxxxx.supabase.co",
+   supabaseAnonKey: "eyJhbGciOi...",
+   ```
+
+5. `./deploy.sh "Supabase 연동"` 으로 배포하면 파란 테스트 배너가 사라지고 실제 DB 로 저장됩니다.
+
+DB 로 바꾸면 재고 차감이 **원자적(atomic)** 으로 처리되어, 동시에 여러 명이 주문해도
+재고가 음수가 되지 않습니다. 재고가 0이 되는 순간 자동으로 품절(`sold`) 처리됩니다.
+
+## 사장님 페이지 (`admin.html`)
+
+주소: `https://allpoone.github.io/cards/admin.html`
+
+- **잠금**: `cards.js` 의 `adminPin` (기본값 `0000` — 배포 후 꼭 바꾸세요)
+- **주문 관리**: 전체 / 입금대기 / 입금완료 / 발송완료 / 취소 필터
+  - **[입금확인 완료]** → `입금완료`
+  - **[발송완료]** → `발송완료`
+  - **[미입금 취소(재고복구)]** → `취소됨` + 차감했던 재고 자동 복구 + 품절 해제
+- **재고 관리**: 상품별 `-` / `+` 또는 숫자 입력 후 **[저장]** → 사이트에 즉시 반영 (0이면 자동 품절)
+
+> PIN 잠금은 화면 잠금입니다. 실제 서버 보안은 `supabase-schema.sql` 의 RLS +
+> 관리자 함수(`update_order_status`, `admin_set_stock`)가 담당합니다. 여러 명이
+> 함께 관리해야 한다면 Supabase Auth 사용자에 `app_metadata.role = 'admin'` 을 주고
+> PIN 없이 쓰는 방식을 권장합니다.
+
+### 주문 상태 흐름
+
+```
+입금대기 (pending_payment)
+   ├─ [입금확인 완료] → 입금완료 (paid) ─ [발송완료] → 발송완료 (shipped)
+   └─ [미입금 취소]   → 취소됨 (cancelled, 재고 복구)
+```
 
 ## 로고 교체
 

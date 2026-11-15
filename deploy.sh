@@ -14,7 +14,18 @@ MSG="${1:-사이트 업데이트}"
 
 # 캐시 무효화: css/js 주소의 ?v= 값을 매번 새로 바꿉니다.
 VER=$(date +%Y%m%d%H%M)
-sed -i -E "s/(styles\.css\?v=)[0-9A-Za-z]+/\1$VER/; s/(cards\.js\?v=)[0-9A-Za-z]+/\1$VER/; s/(app\.js\?v=)[0-9A-Za-z]+/\1$VER/" index.html
+for f in index.html admin.html; do
+  [ -f "$f" ] || continue
+  sed -i -E \
+    -e "s/(styles\.css\?v=)[0-9A-Za-z]+/\1$VER/g" \
+    -e "s/(admin\.css\?v=)[0-9A-Za-z]+/\1$VER/g" \
+    -e "s/(cards\.js\?v=)[0-9A-Za-z]+/\1$VER/g" \
+    -e "s/(store\.js\?v=)[0-9A-Za-z]+/\1$VER/g" \
+    -e "s/(app\.js\?v=)[0-9A-Za-z]+/\1$VER/g" \
+    -e "s/(shop\.js\?v=)[0-9A-Za-z]+/\1$VER/g" \
+    -e "s/(admin\.js\?v=)[0-9A-Za-z]+/\1$VER/g" \
+    "$f"
+done
 
 git add -A
 if git diff --cached --quiet; then

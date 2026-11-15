@@ -80,6 +80,11 @@
     return LANG[p.language] || "-";
   }
 
+  /* 실시간 재고가 반영된 상품 목록 (store.js 가 없으면 cards.js 값 그대로) */
+  function productList() {
+    return window.APOStore ? APOStore.products() : PRODUCTS;
+  }
+
   /* 수량/가격 단위 */
   function unitWord(p) {
     if (p.type === "oripa") return "구";
@@ -89,8 +94,8 @@
 
   function stockText(p) {
     if (p.type === "oripa") {
-      var total = Number(p.totalUnits) || 0;
       var left = Number(p.remainingUnits) || 0;
+      var total = Math.max(Number(p.totalUnits) || 0, left);
       return "총 " + total + "구 · " + left + "구 남음";
     }
     var n = Number(p.remaining) || 0;
@@ -212,7 +217,7 @@
 
   /* ── 필터 칩 ──────────────────────────────────────────── */
   function countFor(kind, key) {
-    return PRODUCTS.filter(function (p) {
+    return productList().filter(function (p) {
       if (key === "all") return true;
       return p[kind === "lang" ? "language" : kind] === key;
     }).length;
@@ -265,15 +270,22 @@
     var isOripa = p.type === "oripa";
     var mp = mainPrize(p);
 
-    var actions = isOripa
-      ? '<button class="btn btn--ghost" type="button" data-action="detail">당첨 라인업</button>' +
-        (sold
-          ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
-          : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 참여 문의</button>')
-      : '<button class="btn btn--ghost" type="button" data-action="detail">상세</button>' +
-        (sold
-          ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
-          : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 문의</button>');
+    var cartBtn = sold
+      ? '<button class="btn btn--gold btn--cart" type="button" disabled>품절 · 담기 불가</button>'
+      : '<button class="btn btn--gold btn--cart" type="button" data-action="cart">' +
+        '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 4h2.2l2.3 11.2h10.3L20.5 7H6.2M9.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM17.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>' +
+        "장바구니 담기</button>";
+
+    var actions = cartBtn +
+      (isOripa
+        ? '<button class="btn btn--ghost" type="button" data-action="detail">당첨 라인업</button>' +
+          (sold
+            ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
+            : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 참여 문의</button>')
+        : '<button class="btn btn--ghost" type="button" data-action="detail">상세</button>' +
+          (sold
+            ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
+            : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 문의</button>'));
 
     return (
       '<article class="card" data-status="' + esc(p.status) + '" data-type="' + esc(p.type) +
@@ -301,7 +313,7 @@
   }
 
   function render() {
-    var list = PRODUCTS.filter(matches);
+    var list = productList().filter(matches);
     list.sort(function (a, b) {
       return (STATUS[a.status] || STATUS.available).order - (STATUS[b.status] || STATUS.available).order;
     });
@@ -309,7 +321,7 @@
     grid.innerHTML = list.map(cardMarkup).join("");
     grid.hidden = list.length === 0;
     emptyState.hidden = list.length !== 0;
-    resultCount.innerHTML = '<b>' + list.length + "</b> / " + PRODUCTS.length + "개";
+    resultCount.innerHTML = '<b>' + list.length + "</b> / " + productList().length + "개";
     searchClear.hidden = !state.q;
     syncGameBadges();
   }
@@ -324,11 +336,12 @@
   }
 
   function updateStats() {
-    $("statTotal").textContent = PRODUCTS.length;
-    $("statAvailable").textContent = PRODUCTS.filter(function (p) {
+    var list = productList();
+    $("statTotal").textContent = list.length;
+    $("statAvailable").textContent = list.filter(function (p) {
       return p.status === "available" || p.status === "low";
     }).length;
-    $("statOripa").textContent = PRODUCTS.filter(function (p) { return p.type === "oripa"; }).length;
+    $("statOripa").textContent = list.filter(function (p) { return p.type === "oripa"; }).length;
   }
 
   /* ── 상세 모달 ────────────────────────────────────────── */
@@ -394,6 +407,18 @@
       "<dl>" + rows.map(function (r) { return "<dt>" + esc(r[0]) + "</dt><dd>" + r[1] + "</dd>"; }).join("") + "</dl>" +
       lineup +
       (p.note ? '<p class="detail__note">' + esc(p.note) + "</p>" : "") +
+      (p.soldOut
+        ? '<p class="detail__sold">품절된 상품입니다. 재입고는 오픈톡으로 문의해 주세요.</p>'
+        : '<div class="detail__buy">' +
+          '<div class="qty" role="group" aria-label="수량">' +
+          '<button class="qty__btn" type="button" data-detail-step="-1" aria-label="수량 줄이기">−</button>' +
+          '<input class="qty__input" id="detailQty" type="number" inputmode="numeric" min="1" max="' +
+          p.stock + '" value="1" aria-label="수량" />' +
+          '<button class="qty__btn" type="button" data-detail-step="1" aria-label="수량 늘리기">+</button>' +
+          "</div>" +
+          '<button class="btn btn--gold btn--buy" type="button" data-cart-add="' + esc(p.id) + '">장바구니 담기</button>' +
+          '<span class="detail__stock">남은 수량 ' + p.stock + esc(unitWord(p)) + "</span>" +
+          "</div>") +
       '<div class="detail__actions">' +
       '<button class="btn btn--ghost" type="button" data-copy="' + esc(p.id) + '">정보 복사하기</button>' +
       '<button class="btn btn--kakao" type="button" data-inquire="' + esc(p.id) + '">' +
@@ -429,6 +454,10 @@
   }
 
   function findProduct(id) {
+    if (window.APOStore) {
+      var live = APOStore.getProduct(id);
+      if (live) return live;
+    }
     for (var i = 0; i < PRODUCTS.length; i++) if (PRODUCTS[i].id === id) return PRODUCTS[i];
     return null;
   }
@@ -513,6 +542,15 @@
       if (btn) {
         var action = btn.getAttribute("data-action");
         if (action === "detail") { openModal(p); return; }
+        if (action === "cart") {
+          e.stopPropagation();
+          var res = window.APOStore
+            ? APOStore.addToCart(p.id, 1)
+            : { ok: false, message: "장바구니를 사용할 수 없습니다." };
+          toast(res.message, res.ok && !res.clamped ? "ok" : "warn");
+          if (!res.ok && (res.reason === "stock" || res.reason === "soldout")) render();
+          return;
+        }
         if (action === "inquire") { e.stopPropagation(); inquire(p); return; }
       }
       if (!e.target.closest("button")) openModal(p);
@@ -527,6 +565,35 @@
     });
 
     $("modalBody").addEventListener("click", function (e) {
+      var stepBtn = e.target.closest("[data-detail-step]");
+      if (stepBtn) {
+        var input = $("detailQty");
+        if (input) {
+          var max = Number(input.max) || 1;
+          var v = (Number(input.value) || 1) + Number(stepBtn.getAttribute("data-detail-step"));
+          input.value = Math.min(max, Math.max(1, v));
+        }
+        return;
+      }
+
+      var addBtn = e.target.closest("[data-cart-add]");
+      if (addBtn) {
+        var pid = addBtn.getAttribute("data-cart-add");
+        var qtyEl = $("detailQty");
+        var q = qtyEl ? Math.max(1, Number(qtyEl.value) || 1) : 1;
+        var res = window.APOStore
+          ? APOStore.addToCart(pid, q)
+          : { ok: false, message: "장바구니를 사용할 수 없습니다." };
+        toast(res.message, res.ok && !res.clamped ? "ok" : "warn");
+        if (res.ok) {
+          closeModal();
+          if (window.APOShop) APOShop.openCart();
+        } else if (res.reason === "stock" || res.reason === "soldout") {
+          render();
+        }
+        return;
+      }
+
       var copyBtn = e.target.closest("[data-copy]");
       if (copyBtn) {
         var c = findProduct(copyBtn.getAttribute("data-copy"));
@@ -596,7 +663,7 @@
       .join("");
 
     var banner = $("sampleBanner");
-    if (c.showSampleBanner && PRODUCTS.some(function (x) { return x.sample; })) {
+    if (c.showSampleBanner && productList().some(function (x) { return x.sample; })) {
       banner.hidden = false;
       $("sampleBannerText").textContent = c.sampleBannerText || "샘플 데이터입니다.";
     } else {
@@ -623,15 +690,39 @@
     resultCount = $("resultCount");
 
     applyConfig();
-    updateStats();
-    buildChips();
-    render();
-    wire();
 
-    if (location.hash && location.hash.length > 1) {
-      var p = findProduct(location.hash.slice(1));
-      if (p) setTimeout(function () { openModal(p); }, 120);
-    }
+    /* 재고를 먼저 읽은 뒤(테스트 모드: 즉시, DB 연결: 조회 후) 화면을 그립니다. */
+    var start = window.APOStore ? APOStore.init() : Promise.resolve();
+    start.then(function () {
+      updateStats();
+      buildChips();
+      render();
+      wire();
+
+      if (location.hash && location.hash.length > 1) {
+        var p = findProduct(location.hash.slice(1));
+        if (p) setTimeout(function () { openModal(p); }, 120);
+      }
+    });
+
+    /* 주문·재고·관리자 수정으로 수치가 바뀌면 다시 그립니다. */
+    window.addEventListener("apo:products", function () {
+      updateStats();
+      buildChips();
+      render();
+    });
+
+    /* shop.js 등에서 재고 갱신 시 사용 */
+    window.APO = {
+      render: function () { updateStats(); buildChips(); render(); },
+      toast: toast,
+      openDetail: openModal,
+      closeDetail: closeModal,
+      productList: productList,
+      unitWord: unitWord,
+      won: won,
+      esc: esc,
+    };
   }
 
   if (document.readyState === "loading") {

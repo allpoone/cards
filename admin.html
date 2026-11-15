@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
+<title>ALL PO ONE — 주문·재고 관리</title>
+<meta name="theme-color" content="#07080b" />
+<link rel="icon" type="image/png" sizes="160x160" href="logo-160.png" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+<link rel="stylesheet" href="styles.css?v=202611160052" />
+<link rel="stylesheet" href="admin.css?v=202611160052" />
+</head>
+<body class="admin-body">
+
+<!-- DB 연동 전 테스트 모드 안내 -->
+<div class="demo-banner" id="demoBanner" hidden>
+  <span class="demo-banner__tag">TEST</span>
+  <span id="demoBannerText">DB 연동 전 테스트 모드입니다. 주문은 이 브라우저에만 저장됩니다.</span>
+</div>
+
+<header class="site-header">
+  <div class="wrap site-header__inner">
+    <a class="brand" href="index.html">
+      <img class="brand__logo" src="logo-160.png" alt="ALL PO ONE 로고" width="40" height="40" decoding="async" />
+      <span class="brand__text">
+        <strong>ALL PO ONE</strong>
+        <small>주문 · 재고 관리</small>
+      </span>
+    </a>
+    <div class="header-actions">
+      <a class="btn btn--ghost btn--sm" href="index.html">사이트로</a>
+      <button class="btn btn--ghost btn--sm" type="button" id="lockBtn" hidden>잠금</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap admin-main">
+
+  <!-- ── 잠금 화면 ─────────────────────────────────────── -->
+  <section class="lock" id="adminLock">
+    <div class="lock__card">
+      <p class="lock__eyebrow">OWNER ONLY</p>
+      <h1 class="lock__title">사장님 페이지</h1>
+      <p class="lock__desc">주문 확인 · 입금 처리 · 재고 수정은 PIN으로 잠겨 있습니다.</p>
+      <form id="lockForm" class="lock__form" novalidate>
+        <label class="lock__label" for="pinInput">관리자 PIN</label>
+        <input
+          id="pinInput"
+          class="lock__input"
+          type="password"
+          inputmode="numeric"
+          autocomplete="off"
+          maxlength="12"
+          placeholder="PIN 4자리"
+          aria-describedby="lockError"
+        />
+        <p class="lock__error" id="lockError" role="alert" hidden></p>
+        <button class="btn btn--gold btn--block" type="submit">열기</button>
+      </form>
+      <p class="lock__hint">기본 PIN은 <b>0000</b> 입니다. <code>cards.js</code> 의 <code>adminPin</code> 에서 바꿀 수 있습니다.</p>
+      <p class="lock__warn">PIN 잠금은 화면 잠금입니다. 실제 서버 보안은 Supabase 관리자 정책(README 참고)을 함께 사용하세요.</p>
+    </div>
+  </section>
+
+  <!-- ── 관리 화면 ─────────────────────────────────────── -->
+  <div id="adminApp" hidden>
+
+    <section class="admin-stats" aria-label="요약">
+      <div class="admin-stat">
+        <span class="admin-stat__label">입금대기</span>
+        <strong id="statPending">0</strong>
+      </div>
+      <div class="admin-stat">
+        <span class="admin-stat__label">입금완료</span>
+        <strong id="statPaid">0</strong>
+      </div>
+      <div class="admin-stat">
+        <span class="admin-stat__label">발송완료</span>
+        <strong id="statShipped">0</strong>
+      </div>
+      <div class="admin-stat admin-stat--money">
+        <span class="admin-stat__label">입금 확인 매출</span>
+        <strong id="statRevenue">₩0</strong>
+      </div>
+    </section>
+
+    <section class="panel" id="ordersPanel">
+      <header class="panel__head">
+        <div>
+          <h2 class="panel__title">주문 관리</h2>
+          <p class="panel__desc">입금이 확인되면 [입금확인 완료], 발송하면 [발송완료]를 눌러 주세요. 미입금 취소는 재고를 자동 복구합니다.</p>
+        </div>
+        <button class="btn btn--ghost btn--sm" type="button" id="refreshBtn">새로고침</button>
+      </header>
+
+      <div class="filters filters--admin" role="group" aria-label="주문 상태 필터">
+        <div class="chips" id="orderFilter">
+          <button class="chip" type="button" data-status="all" aria-pressed="true">전체<span class="chip__n" id="cntAll">0</span></button>
+          <button class="chip" type="button" data-status="pending_payment" aria-pressed="false">입금대기<span class="chip__n" id="cntPending">0</span></button>
+          <button class="chip" type="button" data-status="paid" aria-pressed="false">입금완료<span class="chip__n" id="cntPaid">0</span></button>
+          <button class="chip" type="button" data-status="shipped" aria-pressed="false">발송완료<span class="chip__n" id="cntShipped">0</span></button>
+          <button class="chip" type="button" data-status="cancelled" aria-pressed="false">취소<span class="chip__n" id="cntCancelled">0</span></button>
+        </div>
+      </div>
+
+      <div class="aorder-list" id="orderList"></div>
+      <div class="admin-empty" id="orderEmpty" hidden>
+        <p>아직 주문이 없습니다.</p>
+        <p class="admin-empty__desc">손님이 주문하면 이곳에 바로 표시됩니다. (같은 브라우저 테스트 모드 기준)</p>
+      </div>
+    </section>
+
+    <section class="panel" id="stockPanel">
+      <header class="panel__head">
+        <div>
+          <h2 class="panel__title">재고 관리</h2>
+          <p class="panel__desc">수량을 고치고 [저장]을 누르면 사이트에 바로 반영됩니다. 0이 되면 자동으로 품절 처리됩니다.</p>
+        </div>
+        <button class="btn btn--ghost btn--sm" type="button" id="stockReloadBtn">재고 새로고침</button>
+      </header>
+      <div class="stock-list" id="stockList"></div>
+    </section>
+
+    <p class="admin-foot">
+      주문 상태: <b>입금대기</b> → <b>입금완료</b> → <b>발송완료</b> · 미입금 취소 시 차감된 재고가 복구됩니다.
+    </p>
+  </div>
+</main>
+
+<div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+<script src="cards.js?v=202611160052"></script>
+<script src="store.js?v=202611160052"></script>
+<script src="admin.js?v=202611160052"></script>
+</body>
+</html>
