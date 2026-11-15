@@ -612,7 +612,8 @@ $$;
 --
 -- 동작
 --   1) p_secret 이 private.shop_settings.deposit_secret 과 같은지 확인
---   2) 알림 텍스트에서 첫 번째 '금액 + 원' 을 꺼냄 (예: "홍길동 50,000원 입금" → 50000)
+--   2) 알림 텍스트에서 입금 금액을 꺼냄 (예: "홍길동 50,000원 입금" → 50000)
+--      '잔액/잔고' 뒤에 오는 숫자는 잔액으로 보고 건너뜀
 --   3) 입금대기 주문 중 (총 입금액 = 그 금액) + (입금자명이 알림에 포함) 인 주문을 찾음
 --   4) 후보가 정확히 1건일 때만 [입금완료]로 바꿈
 --      · 0건 → {"status":"unmatched"}
@@ -660,9 +661,14 @@ begin
                               'message', '알림 내용이 비어 있습니다.');
   end if;
 
-  select replace(m[1], ',', '')::int
+  select replace(m[2], ',', '')::int
     into v_amount
-    from regexp_matches(v_text, '([0-9][0-9,]{0,12})\s*원', 'g') as m
+    from regexp_matches(
+           v_text,
+           '(잔액|잔고)?[[:space:]:]*([0-9][0-9,]{0,12})[[:space:]]*원',
+           'g'
+         ) as m
+   where m[1] is null   -- '잔액 1,234,567원' 처럼 잔액 숫자는 건너뜀
    limit 1;
 
   if v_amount is null or v_amount <= 0 then
@@ -717,6 +723,17 @@ begin
     from public.orders
    where id = v_ids[1]
      for update;
+
+  if not found then
+    insert into public.deposit_events (raw_text, amount, status, reason)
+    values (v_text, v_amount, 'unmatched', 'order_missing');
+    return jsonb_build_object(
+      'status', 'unmatched',
+      'reason', 'order_missing',
+      'amount', v_amount,
+      'message', '주문을 찾지 못했습니다.'
+    );
+  end if;
 
   if v_order.status <> 'pending_payment' then
     insert into public.deposit_events (raw_text, amount, status, reason, order_no)
