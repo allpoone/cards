@@ -487,6 +487,7 @@
       return;
     }
 
+    inner.innerHTML = "";
     new window.daum.Postcode({
       oncomplete: function (data) {
         var zip = $("coPostcode");
@@ -507,7 +508,6 @@
       },
     }).embed(inner);
 
-    inner.innerHTML = "";
     box.hidden = false;
     box.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
