@@ -995,7 +995,7 @@
       '<label class="pf"><span>판본</span>' +
       '<select id="npEdition">' + options(EDITION, "") + "</select></label>" +
       '<label class="pf"><span>가격(원) <em>*</em></span>' +
-      '<input type="number" id="npPrice" inputmode="numeric" min="0" placeholder="320000" /></label>' +
+      '<input type="number" id="npPrice" inputmode="numeric" min="0" value="" placeholder="금액" /></label>' +
       '<label class="pf"><span>재고 <em>*</em></span>' +
       '<input type="number" id="npStock" inputmode="numeric" min="0" max="99999" value="1" /></label>' +
       earnFieldMarkup('id="npEarn" data-earn-toggle', 'id="npRate" data-earn-rate', true, shopRateText()) +
