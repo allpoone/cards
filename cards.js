@@ -280,7 +280,6 @@ const PRODUCTS = [
     series: "테라스탈 페스티벌 ex",
     setCode: "SV8a",
     language: "JP",
-    shrink: "O",
     remaining: 24,
     price: 4500,
     status: "available",
