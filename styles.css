@@ -189,16 +189,18 @@ a { color: inherit; }
   text-decoration: none;
   min-width: 0;
 }
-.brand__mark {
-  color: var(--gold);
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  background: linear-gradient(150deg, rgba(227, 192, 122, 0.18), rgba(227, 192, 122, 0.03));
-  border: 1px solid rgba(227, 192, 122, 0.3);
+.brand__logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
   flex: none;
+  background: #07080b;
+  border: 1px solid rgba(227, 192, 122, 0.38);
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.95);
+}
+@media (min-width: 700px) {
+  .brand__logo { width: 44px; height: 44px; }
 }
 .brand__text { display: flex; flex-direction: column; min-width: 0; }
 .brand__text strong {
@@ -968,7 +970,6 @@ button.badge[aria-pressed="true"]::after {
 }
 @media (min-width: 660px) {
   .detail { grid-template-columns: 260px 1fr; gap: 22px; padding: 22px; }
-  .detail__art { max-width: none; margin-inline: 0; }
 }
 .detail__art-wrap { padding: 18px 18px 0; }
 @media (min-width: 660px) {
