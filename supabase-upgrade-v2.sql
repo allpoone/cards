@@ -16,7 +16,10 @@ alter table public.products add column if not exists subtitle  text;
 alter table public.products add column if not exists image_url text;
 alter table public.products add column if not exists edition   text;
 
+-- 예전 'single'(싱글·기타) 분류는 'etc'(기타)로 먼저 옮깁니다.
 alter table public.products drop constraint if exists products_type_check;
+update public.products set type = 'etc' where type = 'single';
+
 alter table public.products
   add constraint products_type_check check (type in ('box', 'oripa', 'etc'));
 alter table public.products drop constraint if exists products_game_check;
@@ -25,9 +28,6 @@ alter table public.products
 alter table public.products drop constraint if exists products_edition_check;
 alter table public.products
   add constraint products_edition_check check (edition is null or edition in ('KR', 'JP', 'EN'));
-
--- 예전 'single'(싱글·기타) 분류는 'etc'(기타)로 옮깁니다.
-update public.products set type = 'etc' where type = 'single';
 
 -- 2) 공개 설정 (비로그인 주문 허용 여부)
 create table if not exists public.shop_public_settings (

@@ -129,8 +129,10 @@ alter table public.products add column if not exists subtitle  text;
 alter table public.products add column if not exists image_url text;
 alter table public.products add column if not exists edition   text;
 
--- 분류·종목 값 확장 (기존 제약이 있으면 지우고 다시 만듭니다)
+-- 분류·종목 값 확장 (기존 제약을 지우고 → 값 옮기고 → 새 제약을 답니다)
 alter table public.products drop constraint if exists products_type_check;
+update public.products set type = 'etc' where type = 'single';
+
 alter table public.products
   add constraint products_type_check check (type in ('box', 'oripa', 'etc'));
 alter table public.products drop constraint if exists products_game_check;
@@ -139,9 +141,6 @@ alter table public.products
 alter table public.products drop constraint if exists products_edition_check;
 alter table public.products
   add constraint products_edition_check check (edition is null or edition in ('KR', 'JP', 'EN'));
-
--- 예전 'single' 분류는 'etc'(기타)로 옮깁니다. (카드/박람회 상품)
-update public.products set type = 'etc' where type = 'single';
 
 create index if not exists products_status_idx on public.products (status);
 
