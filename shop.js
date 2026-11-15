@@ -352,7 +352,7 @@
     var demo = s.isDemo();
 
     var accountLine = user
-      ? '<p class="co__member">' + esc(userLabel(user)) + "님 계정으로 주문합니다. <span>" + esc(user.email || "") + "</span></p>"
+      ? '<p class="co__member">' + esc(userLabel(user)) + "님 계정으로 주문합니다. <span>" + esc(userContact(user)) + "</span></p>"
       : '<div class="co__guest">' +
         '<p>지금은 <b>비회원</b>으로 주문합니다. 로그인하면 배송지가 자동으로 채워지고 [내 주문]에서 내역을 볼 수 있습니다.</p>' +
         '<button class="btn btn--ghost btn--xs" type="button" data-auth-open="login" data-auth-next="checkout">로그인 / 회원가입 후 주문하기</button>' +
@@ -910,15 +910,36 @@
     return s && s.user ? s.user() : null;
   }
 
+  /* 손님 계정의 아이디 (내부 이메일 @member.allpoone.local 은 화면에 내보내지 않습니다) */
+  function memberId(user) {
+    if (!user) return "";
+    var s = authSdk();
+    if (s && s.displayId) return s.displayId(user);
+    var meta = user.user_metadata || {};
+    if (meta.username) return String(meta.username);
+    var mail = String(user.email || "");
+    if (/@member\.allpoone\.local$/i.test(mail)) return mail.split("@")[0];
+    return "";
+  }
+
   function userLabel(user) {
     if (!user) return "";
+    var id = memberId(user);
+    if (id) return id;
     var meta = user.user_metadata || {};
     if (meta.name) return String(meta.name);
     var mail = String(user.email || "");
     return mail ? mail.split("@")[0] : "";
   }
 
-  /* 헤더: 로그인 전에는 [로그인], 로그인 후에는 이메일 + [내 주문] + [로그아웃] */
+  /* 계정 줄에 보여줄 로그인 정보 — 손님은 아이디, 사장님은 이메일 */
+  function userContact(user) {
+    if (!user) return "";
+    var id = memberId(user);
+    return id ? "아이디 " + id : String(user.email || "");
+  }
+
+  /* 헤더: 로그인 전에는 [로그인], 로그인 후에는 아이디 + [내 주문] + [로그아웃] */
   function renderAccount() {
     var user = currentUser();
     var openBtn = $("authOpenBtn");
@@ -936,7 +957,7 @@
     }
     if (mail && user) {
       mail.textContent = userLabel(user);
-      mail.title = String(user.email || "");
+      mail.title = memberId(user) ? "아이디 " + memberId(user) : String(user.email || "");
     }
   }
 
@@ -951,7 +972,7 @@
         '<div class="auth">' +
         '<p class="auth__eyebrow">MY ACCOUNT</p>' +
         '<h2 class="auth__title" id="authTitle">' + esc(userLabel(user)) + "님</h2>" +
-        '<p class="auth__lede">' + esc(user.email || "") + "<br />" +
+        '<p class="auth__lede">' + esc(userContact(user)) + "<br />" +
         (meta.phone ? "연락처 " + esc(phoneText(meta.phone)) : "연락처를 등록하면 주문서가 자동으로 채워집니다.") +
         "</p>" +
         '<div class="auth__actions">' +
@@ -980,9 +1001,20 @@
       "</div>" +
       '<form id="authForm" class="auth__form" novalidate>' +
       '<div class="field">' +
-      '<label for="authEmail">이메일 <span class="req">*</span></label>' +
-      '<input id="authEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="80" placeholder="name@example.com" />' +
-      '<p class="field__err" data-err="authEmail" hidden></p>' +
+      '<label for="authId">' +
+      (isSignup
+        ? '아이디 <span class="req">*</span>'
+        : '아이디 <span class="opt">(또는 관리자 이메일)</span> <span class="req">*</span>') +
+      "</label>" +
+      '<input id="authId" type="text" inputmode="text" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="' +
+        (isSignup ? "20" : "80") + '" placeholder="' +
+        (isSignup ? "영문·숫자 4~20자" : "아이디 (또는 관리자 이메일)") + '" />' +
+      '<p class="field__hint">' +
+      (isSignup
+        ? "영문 소문자·숫자·_·- 4~20자. @(이메일)는 쓸 수 없습니다."
+        : "손님은 아이디로, 사장님은 관리자 이메일로 로그인합니다.") +
+      "</p>" +
+      '<p class="field__err" data-err="authId" hidden></p>' +
       "</div>" +
       '<div class="field">' +
       '<label for="authPassword">비밀번호 <span class="req">*</span></label>' +
@@ -1010,7 +1042,9 @@
       '<div class="auth__foot">' +
       '<button class="btn btn--ghost btn--xs" type="button" data-auth-guest>비회원으로 주문하기</button>' +
       '<span class="auth__foot-note">' +
-      (isSignup ? "이메일 확인이 켜져 있으면 인증 메일이 발송됩니다." : "비밀번호를 잊으면 사장님께 오픈톡으로 문의해 주세요.") +
+      (isSignup
+        ? "아이디·비밀번호만으로 가입합니다. 이메일 주소는 받지 않습니다."
+        : "비밀번호를 잊으면 사장님께 오픈톡으로 문의해 주세요.") +
       "</span>" +
       "</div>" +
       "</div>"
@@ -1021,7 +1055,7 @@
     var body = $("authBody");
     if (!body) return;
     body.innerHTML = authPaneMarkup();
-    var first = authMode === "signup" ? $("authEmail") : $("authEmail");
+    var first = $("authId");
     if (first && !currentUser()) setTimeout(function () { try { first.focus(); } catch (e) {} }, 60);
   }
 
@@ -1098,13 +1132,37 @@
     var s = authSdk();
     if (!s) return;
 
-    var email = ($("authEmail") ? $("authEmail").value : "").trim();
+    var loginRaw = ($("authId") ? $("authId").value : "").trim();
     var pw = $("authPassword") ? $("authPassword").value : "";
     var isSignup = authMode === "signup";
+    var hasAt = loginRaw.indexOf("@") >= 0;
 
     setAuthError("");
-    if (!email) { setAuthError("이메일을 입력해 주세요."); if ($("authEmail")) $("authEmail").focus(); return; }
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setAuthError("이메일 형식을 확인해 주세요."); return; }
+    if (!loginRaw) {
+      setAuthError(isSignup ? "아이디를 입력해 주세요." : "아이디(또는 관리자 이메일)를 입력해 주세요.");
+      if ($("authId")) $("authId").focus();
+      return;
+    }
+    if (isSignup) {
+      if (hasAt) {
+        setAuthError("아이디에는 @를 쓸 수 없습니다. 영문 소문자·숫자·_·- 4~20자로 입력해 주세요.");
+        if ($("authId")) $("authId").focus();
+        return;
+      }
+      if (!/^[a-z0-9_-]{4,20}$/.test(loginRaw.toLowerCase())) {
+        setAuthError("아이디는 영문 소문자·숫자·_·- 4~20자로 입력해 주세요.");
+        if ($("authId")) $("authId").focus();
+        return;
+      }
+    } else if (hasAt) {
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(loginRaw)) {
+        setAuthError("이메일 형식을 확인해 주세요.");
+        return;
+      }
+    } else if (!/^[a-zA-Z0-9_-]{2,64}$/.test(loginRaw)) {
+      setAuthError("아이디는 영문·숫자·_·- 2~64자로 입력해 주세요.");
+      return;
+    }
     if (!pw) { setAuthError("비밀번호를 입력해 주세요."); if ($("authPassword")) $("authPassword").focus(); return; }
     if (isSignup && pw.length < 6) { setAuthError("비밀번호는 6자 이상으로 입력해 주세요."); return; }
 
@@ -1114,8 +1172,8 @@
     setAuthBusy(true, isSignup ? "가입 중…" : "로그인 중…");
 
     var task = isSignup
-      ? s.signUpUser(email, pw, { name: name, phone: phone })
-      : s.signInUser(email, pw);
+      ? s.signUpUser(loginRaw, pw, { name: name, phone: phone })
+      : s.signInUser(loginRaw, pw);
 
     task.then(function (res) {
       afterAuth(res, isSignup);

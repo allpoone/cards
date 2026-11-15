@@ -1268,26 +1268,33 @@
     return isAdminUser(currentUser());
   }
 
-  /* 로그인 오류를 화면에 보여줄 한국어 문장으로 바꿉니다. */
-  function authMessage(err) {
+  /* 로그인 오류를 화면에 보여줄 한국어 문장으로 바꿉니다.
+     accountWord: 손님은 "아이디", 사장님(admin.html)은 "이메일" */
+  function authMessage(err, accountWord) {
+    var word = accountWord || "아이디";
     var raw = String((err && (err.message || err.msg || err.error_description)) || "");
     var code = String((err && err.code) || "");
     var status = Number(err && err.status) || 0;
     if (/email not confirmed/i.test(raw)) {
+      if (word === "아이디") {
+        return "아이디 가입 계정은 이메일 인증이 꺼져 있어야 로그인할 수 있습니다. 사장님께 오픈톡으로 문의해 주세요.";
+      }
       return "이메일 인증이 완료되지 않은 계정입니다. 받은 메일의 인증 링크를 먼저 눌러 주세요.";
     }
     if (/invalid login credentials|invalid_credentials|invalid_grant/i.test(raw) ||
         code === "invalid_credentials") {
-      return "이메일 또는 비밀번호가 맞지 않습니다.";
+      return word + " 또는 비밀번호가 맞지 않습니다.";
     }
     if (/too many requests|rate limit|over_email_send_rate_limit/i.test(raw) || status === 429) {
       return "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
     }
     if (/user not found/i.test(raw)) {
-      return "등록되지 않은 관리자 이메일입니다.";
+      return "등록되지 않은 " + word + "입니다.";
     }
     if (/already registered|already been registered|user already exists/i.test(raw)) {
-      return "이미 가입된 이메일입니다. [로그인] 탭에서 로그인해 주세요.";
+      return word === "이메일"
+        ? "이미 가입된 이메일입니다. [로그인] 탭에서 로그인해 주세요."
+        : "이미 가입된 아이디입니다. [로그인] 탭에서 로그인해 주세요.";
     }
     if (/password should be at least|weak password|password.*too short/i.test(raw)) {
       return "비밀번호가 너무 짧습니다. 6자 이상으로 입력해 주세요.";
@@ -1321,7 +1328,7 @@
       })
       .then(function (res) {
         if (res && res.error) {
-          var e = new Error(authMessage(res.error));
+          var e = new Error(authMessage(res.error, "이메일"));
           e.code = res.error.code || res.error.status || "AUTH";
           throw e;
         }
@@ -1367,10 +1374,39 @@
     return e;
   }
 
-  function signInUser(email, password) {
-    var mail = String(email == null ? "" : email).trim();
+  /* ── 아이디 로그인 규칙 ───────────────────────────────────
+     손님은 이메일 없이 아이디만 씁니다. 내부적으로
+     <아이디>@member.allpoone.local 을 Supabase Auth 이메일로 씁니다.
+     입력값에 @ 가 있으면(사장님 관리자 이메일 등) 변환 없이 그대로 씁니다. */
+  var MEMBER_DOMAIN = "member.allpoone.local";
+
+  function loginEmail(raw) {
+    var v = String(raw == null ? "" : raw).trim();
+    if (!v) return "";
+    if (v.indexOf("@") >= 0) return v;
+    return v.toLowerCase() + "@" + MEMBER_DOMAIN;
+  }
+
+  function isMemberEmail(mail) {
+    return new RegExp("@" + MEMBER_DOMAIN.replace(/\./g, "\\.") + "$", "i").test(String(mail || ""));
+  }
+
+  /* 화면에 보여줄 아이디 — 내부 이메일(@member.allpoone.local)은 숨깁니다. */
+  function displayId(user) {
+    var u = user || currentUser();
+    if (!u) return "";
+    var meta = u.user_metadata || {};
+    if (meta.username) return String(meta.username);
+    var mail = String(u.email || "");
+    if (isMemberEmail(mail)) return mail.split("@")[0];
+    return "";
+  }
+
+  function signInUser(login, password) {
+    var raw = String(login == null ? "" : login).trim();
+    var mail = loginEmail(raw);
     var pw = String(password == null ? "" : password);
-    if (!mail) return Promise.reject(new Error("이메일을 입력해 주세요."));
+    if (!raw) return Promise.reject(new Error("아이디를 입력해 주세요."));
     if (!pw) return Promise.reject(new Error("비밀번호를 입력해 주세요."));
     if (mode !== "db") return Promise.reject(demoAuthError());
 
@@ -1387,15 +1423,24 @@
       });
   }
 
-  function signUpUser(email, password, meta) {
-    var mail = String(email == null ? "" : email).trim();
+  function signUpUser(login, password, meta) {
+    var raw = String(login == null ? "" : login).trim();
     var pw = String(password == null ? "" : password);
     var info = meta || {};
-    if (!mail) return Promise.reject(new Error("이메일을 입력해 주세요."));
+    if (!raw) return Promise.reject(new Error("아이디를 입력해 주세요."));
     if (!pw || pw.length < 6) return Promise.reject(new Error("비밀번호는 6자 이상으로 입력해 주세요."));
     if (mode !== "db") return Promise.reject(demoAuthError());
 
+    /* 아이디(아이디만) 또는 이메일(기존 방식) 둘 다 받습니다. */
+    var isEmail = raw.indexOf("@") >= 0;
+    var username = isEmail ? "" : raw.toLowerCase();
+    if (!isEmail && !/^[a-z0-9_-]{4,20}$/.test(username)) {
+      return Promise.reject(new Error("아이디는 영문 소문자·숫자·_·- 4~20자로 입력해 주세요."));
+    }
+    var mail = loginEmail(raw);
+
     var data = {};
+    if (username) data.username = username;
     if (info.name) data.name = String(info.name).trim();
     if (info.phone) data.phone = digits(info.phone);
 
@@ -1417,8 +1462,10 @@
             alreadyRegistered: !!exists,
             user: user,
             message: exists
-              ? "이미 가입된 이메일입니다. [로그인] 탭에서 로그인해 주세요."
-              : "가입한 이메일로 인증 링크를 보냈습니다. 메일함에서 인증 링크를 눌러 주세요.",
+              ? "이미 가입된 아이디입니다. [로그인] 탭에서 로그인해 주세요."
+              : (isMemberEmail(mail)
+                  ? "아이디 회원가입을 사용하려면 관리자 설정(Supabase 이메일 인증 끄기)이 필요합니다. 사장님께 오픈톡으로 알려 주세요."
+                  : "가입한 이메일로 인증 링크를 보냈습니다. 메일함에서 인증 링크를 눌러 주세요."),
           };
         }
 
@@ -1734,6 +1781,8 @@
     setRequireLogin: setRequireLogin,
     user: currentUser,
     userMeta: userMeta,
+    displayId: displayId,
+    isMemberEmail: isMemberEmail,
     signInUser: signInUser,
     signUpUser: signUpUser,
     signOutUser: signOutUser,
