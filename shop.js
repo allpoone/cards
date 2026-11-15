@@ -1503,7 +1503,7 @@
       renderAccount();
       closeEl($("authModal"));
       if ($("mypageModal") && !$("mypageModal").hidden) {
-        mypageTab = "info";
+        mypageTab = "orders";
         renderMypage();
       }
       toast("로그아웃했습니다.", "ok");
@@ -1511,9 +1511,9 @@
   }
 
   /* ============================================================
-     마이페이지 — 내 정보 · 주문 내역 · 적립금 / 비회원 주문 조회
+     마이페이지 — 주문 내역 · 적립금 · 내 정보 / 비회원 주문 조회
      ============================================================ */
-  var mypageTab = "info";
+  var mypageTab = "orders";
   var mpLookupMode = "no";
   var mpLastQuery = null;
   var mpSaveBusy = false;
@@ -1522,9 +1522,9 @@
 
   function mypageTabsMarkup(active) {
     var tabs = [
-      { k: "info", label: "내 정보" },
       { k: "orders", label: "주문 내역" },
-      { k: "points", label: "적립금" }
+      { k: "points", label: "적립금" },
+      { k: "info", label: "내 정보" }
     ];
     return (
       '<div class="mypage__tabs" role="tablist" aria-label="마이페이지 메뉴">' +
@@ -1608,7 +1608,7 @@
       '<div class="mypage">' +
       '<p class="mypage__eyebrow">MY PAGE</p>' +
       '<h2 class="mypage__title" id="mypageTitle">마이페이지</h2>' +
-      '<p class="mypage__lede">로그인하시면 내 정보 수정 · 주문 내역 · 적립금을 한곳에서 관리할 수 있어요.</p>' +
+      '<p class="mypage__lede">로그인하시면 주문 내역 · 적립금 · 내 정보 수정을 한곳에서 관리할 수 있어요.</p>' +
       '<button class="btn btn--gold btn--block mypage__login" type="button" data-auth-open="login">로그인 / 회원가입</button>' +
       '<div class="mypage__sep"><span>비회원 주문 조회</span></div>' +
       '<p class="mypage__note">주문번호 또는 주문자명 + 연락처로 주문 상태를 확인할 수 있어요.</p>' +
@@ -1664,14 +1664,14 @@
       '<h2 class="mypage__title" id="mypageTitle">' + esc(userLabel(user)) + "님</h2>" +
       '<p class="mypage__lede">' + esc(sub.filter(Boolean).join(" · ")) + "</p>" +
       mypageTabsMarkup(mypageTab) +
-      '<div class="mypage__panel" data-mypage-pane="info"' + (mypageTab === "info" ? "" : " hidden") + ">" +
-      mypageInfoMarkup(user) +
-      "</div>" +
       '<div class="mypage__panel" data-mypage-pane="orders"' + (mypageTab === "orders" ? "" : " hidden") + ">" +
       mypageOrdersMarkup() +
       "</div>" +
       '<div class="mypage__panel" data-mypage-pane="points"' + (mypageTab === "points" ? "" : " hidden") + ">" +
       mypagePointsMarkup() +
+      "</div>" +
+      '<div class="mypage__panel" data-mypage-pane="info"' + (mypageTab === "info" ? "" : " hidden") + ">" +
+      mypageInfoMarkup(user) +
       "</div>" +
       '<div class="mypage__foot">' +
       '<button class="btn btn--ghost btn--sm" type="button" data-mypage-logout>로그아웃</button>' +
@@ -1695,13 +1695,18 @@
     if (mypageTab === "points") loadMypagePoints();
   }
 
+  function mypageTabKey(tab) {
+    /* 마이페이지 기본 탭은 주문 내역입니다. */
+    return tab === "points" || tab === "info" ? tab : "orders";
+  }
+
   function setMypageTab(tab) {
-    mypageTab = tab === "orders" || tab === "points" ? tab : "info";
+    mypageTab = mypageTabKey(tab);
     applyMypageTab();
   }
 
   function openMypage(tab) {
-    mypageTab = tab === "orders" || tab === "points" ? tab : "info";
+    mypageTab = mypageTabKey(tab);
     mpLookupMode = "no";
     mpLastQuery = null;
     mpOrders = null;
@@ -2060,7 +2065,7 @@
         closeEl($("checkoutModal"));
         closeEl($("authModal"));
         closeCart();
-        openMypage("info");
+        openMypage("orders");
         return;
       }
       var mpTab = t.closest("[data-mypage-tab]");
