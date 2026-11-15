@@ -190,17 +190,16 @@ a { color: inherit; }
   min-width: 0;
 }
 .brand__logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  object-fit: cover;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  object-fit: contain;
   flex: none;
-  background: #07080b;
-  border: 1px solid rgba(227, 192, 122, 0.38);
-  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.95);
+  background: #0a0b0f;
+  box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 @media (min-width: 700px) {
-  .brand__logo { width: 44px; height: 44px; }
+  .brand__logo { width: 48px; height: 48px; border-radius: 13px; }
 }
 .brand__text { display: flex; flex-direction: column; min-width: 0; }
 .brand__text strong {
