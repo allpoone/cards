@@ -1066,9 +1066,6 @@
 
       '<div class="done__actions">' +
       '<button class="btn btn--ghost btn--sm" type="button" data-open-lookup="' + esc(order.order_no) + '">내 주문 조회</button>' +
-      (String(CFG.openKakaoUrl || "").trim()
-        ? '<a class="btn btn--kakao btn--sm" href="' + esc(CFG.openKakaoUrl) + '" target="_blank" rel="noopener noreferrer">오픈톡 문의</a>'
-        : '<button class="btn btn--kakao btn--sm" type="button" data-inquire>오픈톡 문의</button>') +
       '<button class="btn btn--gold btn--sm" type="button" data-close-done>확인</button>' +
       "</div>" +
 

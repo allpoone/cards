@@ -745,6 +745,7 @@
       '<ul class="seat__legend" data-seat-legend hidden>' +
       '<li><span class="seat__dot seat__dot--on"></span>선택 가능</li>' +
       '<li><span class="seat__dot seat__dot--picked"></span>내가 선택</li>' +
+      '<li><span class="seat__dot seat__dot--cart"></span>장바구니</li>' +
       '<li><span class="seat__dot seat__dot--off"></span>팔림</li>' +
       '<li><span class="seat__dot seat__dot--off seat__dot--lock"></span>입금대기</li>' +
       "</ul>" +
@@ -755,11 +756,36 @@
 
   /* ── 번호 선택 상태 ───────────────────────────────────── */
   var SEAT_PAGE_SIZE = 50;   /* 한 페이지에 보여줄 번호 개수 */
-  var seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false };
+  var seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false, inCart: {} };
   var modalId = "";
 
   function resetSeat() {
-    seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false };
+    seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false, inCart: {} };
+  }
+
+  /* 장바구니에 담아둔 이 상품의 번호 (서버 상태와 별개로 이 브라우저의 장바구니 기준) */
+  function cartSeatMap(pid) {
+    var map = {};
+    if (!window.APOStore || !pid) return map;
+    var read = APOStore.getCart || APOStore.cart;
+    var lines = read ? read() : null;
+    for (var i = 0; i < (lines || []).length; i++) {
+      var line = lines[i];
+      if (!line || line.id !== pid || !line.seats || !line.seats.length) continue;
+      for (var j = 0; j < line.seats.length; j++) {
+        var n = Math.floor(Number(line.seats[j]) || 0);
+        if (n > 0) map[n] = true;
+      }
+    }
+    return map;
+  }
+
+  /* 장바구니가 바뀌면(추가·삭제·주문 완료 자동 정리) 열려 있는 번호판에 즉시 반영 */
+  function refreshCartSeats() {
+    if (!seat.open || !seat.id) return;
+    seat.inCart = cartSeatMap(seat.id);
+    paintSeatGrid();
+    paintSeatSum();
   }
 
   function seatCounts() {
@@ -804,6 +830,17 @@
     return false;
   }
 
+  /* 그 페이지에 장바구니에 담아둔 번호가 있는지 */
+  function seatPageHasCart(idx) {
+    var r = seatPageRange(idx);
+    for (var k in seat.inCart) {
+      if (!seat.inCart[k]) continue;
+      var n = Number(k);
+      if (n >= r.from && n <= r.to) return true;
+    }
+    return false;
+  }
+
   /* 페이지 바 (51구 이상일 때만) */
   function paintSeatPager() {
     var box = document.querySelector("[data-seat-pager]");
@@ -823,7 +860,8 @@
       var on = i === seat.page;
       html +=
         '<button class="seat__pgchip' + (on ? " is-on" : "") +
-        (seatPageHasPick(i) ? " is-pick" : "") + '" type="button" data-seat-page="' + i + '"' +
+        (seatPageHasPick(i) ? " is-pick" : "") +
+        (seatPageHasCart(i) ? " is-cart" : "") + '" type="button" data-seat-page="' + i + '"' +
         ' aria-pressed="' + (on ? "true" : "false") + '">' +
         r.from + "~" + r.to +
         '<span class="seat__pgchip-left">(' + seatPageRemain(i) + ")</span></button>";
@@ -849,10 +887,12 @@
       var st = seat.status[n] || "available";
       if (st === "available") {
         var on = picked[n] === true;
+        var inCart = !on && seat.inCart[n] === true;
         html +=
-          '<button class="seat__btn' + (on ? " is-picked" : "") + '" type="button" data-seat-num="' + n + '"' +
+          '<button class="seat__btn' + (on ? " is-picked" : "") + (inCart ? " is-in-cart" : "") +
+          '" type="button" data-seat-num="' + n + '"' +
           ' aria-pressed="' + (on ? "true" : "false") + '" aria-label="' + n + "번" +
-          (on ? " 선택됨" : "") + '">' + n + "</button>";
+          (on ? " 선택됨" : inCart ? " 장바구니에 담김" : "") + '">' + n + "</button>";
       } else {
         var lock = st === "held";
         html +=
@@ -878,9 +918,20 @@
     var nums = picked.length
       ? picked.map(function (n) { return "<b>#" + n + "</b>"; }).join("")
       : '<span class="seat__sum-none">번호를 선택해 주세요</span>';
+    var cart = [];
+    for (var k in seat.inCart) if (seat.inCart[k]) cart.push(Number(k));
+    cart.sort(function (a, b) { return a - b; });
+    var cartTxt = "";
+    if (cart.length) {
+      var head = cart.slice(0, 8).map(function (n) { return "#" + n; }).join(", ");
+      cartTxt =
+        '<span class="seat__sum-cart" title="장바구니에 담아둔 번호">🛒 장바구니 ' + head +
+        (cart.length > 8 ? " 외 " + (cart.length - 8) + "구" : "") + "</span>";
+    }
     box.innerHTML =
       '<span class="seat__sum-label">선택 번호</span>' +
       '<span class="seat__sum-nums">' + nums + "</span>" +
+      cartTxt +
       '<span class="seat__sum-total">' + picked.length + "구 · " + seatWon(picked.length * seat.price) + "</span>";
     box.hidden = false;
 
@@ -931,6 +982,7 @@
       picked: [],
       page: 0,
       open: true,
+      inCart: cartSeatMap(p.id),
     };
     (board.seats || []).forEach(function (x) {
       if (x && x.n) seat.status[x.n] = x.s || "available";
@@ -1146,6 +1198,11 @@
         if (seatBtn.disabled) return;
         var num = Number(seatBtn.getAttribute("data-seat-num"));
         var at = seat.picked.indexOf(num);
+        /* 이미 장바구니에 담아둔 번호는 중복으로 고르지 않고 안내만 합니다. */
+        if (at < 0 && seatBtn.classList.contains("is-in-cart")) {
+          toast("이미 장바구니에 담긴 번호예요. 장바구니에서 빼거나 바로 결제할 수 있어요.", "ok");
+          return;
+        }
         if (at >= 0) {
           seat.picked.splice(at, 1);
         } else {
@@ -1271,6 +1328,9 @@
         closeModal();
       }
     });
+
+    /* 장바구니가 바뀌면 열려 있는 번호판의 '장바구니' 표시를 바로 맞춥니다. */
+    window.addEventListener("apo:cart", refreshCartSeats);
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeModal();
     });

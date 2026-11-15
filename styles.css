@@ -2620,6 +2620,8 @@ body.auth-pending #headerUser { visibility: hidden; }
 }
 .seat__pgchip.is-on .seat__pgchip-left { color: rgba(36, 26, 6, 0.62); }
 .seat__pgchip.is-pick:not(.is-on) { border-color: rgba(240, 217, 169, 0.62); color: var(--gold-soft); }
+.seat__pgchip.is-cart:not(.is-on) { border-color: rgba(86, 214, 208, 0.55); color: #9fe9e5; }
+.seat__pgchip.is-cart:not(.is-on) .seat__pgchip-left { color: rgba(159, 233, 229, 0.66); }
 .seat__btn {
   position: relative;
   aspect-ratio: 1 / 1;
@@ -2647,6 +2649,26 @@ body.auth-pending #headerUser { visibility: hidden; }
   color: #241a06;
   font-weight: 850;
   box-shadow: 0 0 0 1px rgba(240, 217, 169, 0.6), 0 8px 18px -10px rgba(227, 192, 122, 0.95);
+}
+/* 장바구니에 담아둔 번호 — 봤을 때 금방 알아보게 은은한 청록 */
+.seat__btn.is-in-cart {
+  border-color: rgba(86, 214, 208, 0.62);
+  background: linear-gradient(180deg, rgba(86, 214, 208, 0.18), rgba(86, 214, 208, 0.07));
+  color: #b9f2ef;
+  box-shadow: inset 0 0 0 1px rgba(86, 214, 208, 0.16);
+}
+.seat__btn.is-in-cart:hover {
+  border-color: rgba(86, 214, 208, 0.9);
+  background: linear-gradient(180deg, rgba(86, 214, 208, 0.26), rgba(86, 214, 208, 0.12));
+}
+.seat__btn.is-in-cart::before {
+  content: "🛒";
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 0.5rem;
+  line-height: 1.2;
+  opacity: 0.92;
 }
 .seat__btn.is-off {
   color: #59616f;
@@ -2699,6 +2721,10 @@ body.auth-pending #headerUser { visibility: hidden; }
 }
 .seat__dot--on { border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.05); }
 .seat__dot--picked { background: linear-gradient(180deg, #f0d9a9, #e3c07a); }
+.seat__dot--cart {
+  border: 1px solid rgba(86, 214, 208, 0.7);
+  background: linear-gradient(180deg, rgba(86, 214, 208, 0.32), rgba(86, 214, 208, 0.12));
+}
 .seat__dot--off {
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
@@ -2755,6 +2781,19 @@ body.auth-pending #headerUser { visibility: hidden; }
   font-variant-numeric: tabular-nums;
 }
 .seat__sum-nums .seat__sum-none { font-style: normal; color: var(--text-faint); }
+.seat__sum-cart {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(86, 214, 208, 0.5);
+  background: rgba(86, 214, 208, 0.12);
+  color: #9fe9e5;
+  font-size: 0.68rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
 .seat__sum-total {
   margin-left: auto;
   color: var(--gold-soft);

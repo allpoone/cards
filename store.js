@@ -2723,6 +2723,7 @@
     won: won,
 
     cart: cartLines,
+    getCart: cartLines,
     cartCount: cartCount,
     cartTotal: cartTotal,
     addToCart: addToCart,
