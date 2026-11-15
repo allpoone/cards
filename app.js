@@ -220,7 +220,10 @@
 
   /* ── 필터 칩 ──────────────────────────────────────────── */
   function countFor(kind, key) {
-    return productList().filter(function (p) {
+    var list = productList();
+    /* 판본은 미개봉 박스 안에서만 세어 줍니다. */
+    if (kind === "edition") list = list.filter(function (p) { return p.type === "box"; });
+    return list.filter(function (p) {
       if (key === "all") return true;
       if (kind === "edition") return editionOf(p) === key;
       return p[kind] === key;
