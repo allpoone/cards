@@ -891,7 +891,10 @@
       return Promise.resolve();
     }
     return connectDb()
-      .then(function (c) { return c.auth.signOut(); })
+      .then(function (c) {
+        /* scope: "local" — 이 브라우저의 세션만 해제합니다. (다른 기기 로그인은 유지) */
+        return c.auth.signOut({ scope: "local" });
+      })
       .catch(function (err) {
         if (window.console && console.warn) console.warn("[ALL PO ONE] 로그아웃 실패:", err);
       })
