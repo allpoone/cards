@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="logo.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160718" />
+<link rel="stylesheet" href="styles.css?v=202611160805" />
 <script src="https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" defer></script>
 </head>
 <body class="auth-pending">
@@ -248,6 +248,15 @@
   </div>
 </div>
 
+<!-- ── 프로필 완성 모달 (카카오 첫 로그인 · 번호 미등록 회원) ── -->
+<div class="modal" id="profileModal" hidden>
+  <div class="modal__backdrop" data-close-profile></div>
+  <div class="modal__dialog modal__dialog--form" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+    <button class="modal__close" type="button" data-close-profile aria-label="닫기">×</button>
+    <div class="modal__body" id="profileBody"></div>
+  </div>
+</div>
+
 <!-- ── 모바일 하단 장바구니 바 ─────────────────────────────── -->
 <div class="cartbar" id="cartBar" hidden>
   <button class="cartbar__btn" type="button" data-open-cart>
@@ -261,9 +270,9 @@
 <!-- ── 토스트 ─────────────────────────────────────────────── -->
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160718"></script>
-<script src="store.js?v=202611160718"></script>
-<script src="app.js?v=202611160718"></script>
-<script src="shop.js?v=202611160718"></script>
+<script src="cards.js?v=202611160805"></script>
+<script src="store.js?v=202611160805"></script>
+<script src="app.js?v=202611160805"></script>
+<script src="shop.js?v=202611160805"></script>
 </body>
 </html>

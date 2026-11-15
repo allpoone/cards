@@ -860,9 +860,10 @@
       client.auth.onAuthStateChange(function (event, session) {
         if (event === "SIGNED_OUT") rememberSession(null);
         else if (session) rememberSession(session);
-        /* 사용자가 바뀌었을 수 있으니 적립금 캐시는 버립니다. */
+        /* 사용자가 바뀌었을 수 있으니 적립금·프로필 캐시는 버립니다. */
         pointsCache = null;
         pointsPromise = null;
+        profileCache = null;
         emit("auth");
       });
     } catch (e) {
@@ -2183,6 +2184,7 @@
   function signOutUser() {
     pointsCache = null;
     pointsPromise = null;
+    profileCache = null;
     if (mode !== "db") {
       rememberSession(null);
       emit("auth");
@@ -2202,6 +2204,50 @@
   function userMeta() {
     var u = currentUser();
     return (u && u.user_metadata) || {};
+  }
+
+  /* ── 회원 프로필 (이름·휴대폰) ─────────────────────────────
+     DB 패치(supabase-patch-member-profile.sql) 이후부터는 profiles 가 기준값입니다.
+     패치 전이거나 오류면 null 을 돌려주고 화면은 예전처럼 메타데이터를 씁니다. */
+  var profileCache = null;
+
+  function myProfile(force) {
+    if (mode !== "db" || !currentUser()) return Promise.resolve(null);
+    if (profileCache && !force) return Promise.resolve(profileCache);
+    return rpc("my_profile", {})
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : (data || {});
+        profileCache = {
+          name: String(raw.name || ""),
+          phone: digits(raw.phone),
+          needs_phone: !digits(raw.phone),
+          blocked: !!raw.blocked,
+          block_reason: String(raw.block_reason || ""),
+        };
+        return profileCache;
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) return null;
+        throw err;
+      });
+  }
+
+  function profileReady() {
+    return !!profileCache;
+  }
+
+  /* 카카오 로그인 — Supabase Auth 의 kakao 제공자로 넘깁니다. */
+  function signInWithKakao() {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    var back = window.location.origin + window.location.pathname;
+    return connectDb()
+      .then(function (c) {
+        return c.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: back } });
+      })
+      .then(function (res) {
+        if (res && res.error) throw new Error(authMessage(res.error));
+        return { redirecting: true };
+      });
   }
 
   /* 주문 완료 시 최근 배송지를 계정에 저장 → 다음 주문 때 자동 채움 */
@@ -2263,28 +2309,125 @@
     var input = info || {};
     var data = {};
     if (input.name !== undefined) data.name = String(input.name || "").trim();
-    if (input.phone !== undefined) data.phone = digits(input.phone);
+    /* 휴대폰 번호는 회원이 직접 바꿀 수 없습니다 — 새 번호가 오면 무시합니다.
+       (최초 1회 등록은 saveMyProfile 이 담당합니다) */
     var pw = input.password ? String(input.password) : "";
 
     var payload = { data: data };
     if (pw) payload.password = pw;
 
-    return connectDb()
-      .then(function (c) { return c.auth.updateUser(payload); })
-      .then(function (res) {
-        if (res && res.error) throw new Error(profileMessage(res.error));
-        var user = res && res.data && res.data.user;
-        /* 헤더·주문서가 바로 새 값을 쓰도록 세션 캐시도 갱신합니다. */
-        if (user) {
-          if (sessionCache) {
-            sessionCache.user = user;
-            rememberSession(sessionCache);
-          } else {
-            rememberSession({ user: user });
-          }
-        }
+    var applyDb = function () {
+      if (data.name === undefined && !pw) return Promise.resolve(null);
+      return rpc("update_my_profile", {
+        p_name: data.name !== undefined ? data.name : null,
+        p_phone: null,
+      }).catch(function () { return null; });
+    };
+
+    return applyDb()
+      .then(function () {
+        if (!Object.keys(payload).length) return currentUser();
+        return connectDb()
+          .then(function (c) { return c.auth.updateUser(payload); })
+          .then(function (res) {
+            if (res && res.error) throw new Error(profileMessage(res.error));
+            var user = res && res.data && res.data.user;
+            /* 헤더·주문서가 바로 새 값을 쓰도록 세션 캐시도 갱신합니다. */
+            if (user) {
+              if (sessionCache) {
+                sessionCache.user = user;
+                rememberSession(sessionCache);
+              } else {
+                rememberSession({ user: user });
+              }
+            }
+            return user || currentUser();
+          });
+      })
+      .then(function (user) {
+        profileCache = null;
         emit("auth");
         return user || currentUser();
+      });
+  }
+
+  /* 최초 1회 휴대폰 번호 등록 (카카오 로그인 직후 프로필 완성).
+     이름은 항상, 번호는 아직 등록 전일 때만 받습니다. */
+  function saveMyProfile(name, phone) {
+    var u = currentUser();
+    if (!u) return Promise.reject(new Error("로그인 후 이용해 주세요."));
+    if (mode !== "db") return Promise.reject(demoAuthError());
+
+    var n = String(name || "").trim();
+    var p = digits(phone);
+    if (!n) return Promise.reject(new Error("이름을 입력해 주세요."));
+    if (!p || !/^01[016789][0-9]{7,8}$/.test(p)) {
+      return Promise.reject(new Error("휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)"));
+    }
+
+    var wasNew = !(digits((userMeta() || {}).phone));
+
+    return rpc("update_my_profile", { p_name: n, p_phone: wasNew ? p : null })
+      .then(function (res) {
+        var raw = Array.isArray(res) ? res[0] : (res || {});
+        if (raw.blocked) {
+          var be = new Error(raw.block_reason || "이용이 제한된 카카오 계정입니다. 오픈톡으로 문의해 주세요.");
+          be.code = "BLOCKED";
+          throw be;
+        }
+        profileCache = {
+          name: String(raw.name || n),
+          phone: digits(raw.phone) || p,
+          needs_phone: !digits(raw.phone),
+          blocked: false,
+          block_reason: "",
+        };
+        return connectDb()
+          .then(function (c) {
+            return c.auth.updateUser({ data: { name: n, phone: digits(raw.phone) || p } });
+          })
+          .then(function (r2) {
+            if (r2 && r2.error) return null;
+            var user = r2 && r2.data && r2.data.user;
+            if (user) {
+              if (sessionCache) {
+                sessionCache.user = user;
+                rememberSession(sessionCache);
+              } else {
+                rememberSession({ user: user });
+              }
+            }
+            return null;
+          })
+          .catch(function () { return null; })
+          .then(function () {
+            profileCache = null;
+            emit("auth");
+            return { name: n, phone: digits(raw.phone) || p };
+          });
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) {
+          /* DB 패치 전 — 일단 메타데이터에만 저장합니다. */
+          return connectDb()
+            .then(function (c) { return c.auth.updateUser({ data: { name: n, phone: p } }); })
+            .then(function (r2) {
+              if (r2 && r2.error) throw new Error(profileMessage(r2.error));
+              var user = r2 && r2.data && r2.data.user;
+              if (user) {
+                if (sessionCache) {
+                  sessionCache.user = user;
+                  rememberSession(sessionCache);
+                } else {
+                  rememberSession({ user: user });
+                }
+              }
+              profileCache = null;
+              emit("auth");
+              return { name: n, phone: p };
+            });
+        }
+        throw err;
       });
   }
 
@@ -2613,6 +2756,153 @@
       });
   }
 
+  /* 사장님: 차단된 휴대폰 번호 목록 */
+  function listBlockedPhones() {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    return rpc("admin_list_blocked_phones", { p_pin: null })
+      .then(function (data) {
+        var list = Array.isArray(data) ? data : (data ? [data] : []);
+        return list.map(function (b) {
+          return {
+            phone_digits: String(b.phone_digits || ""),
+            reason: b.reason || "",
+            created_at: b.created_at,
+          };
+        });
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 휴대폰 번호 차단 */
+  function blockPhone(phone, reason) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    var p = digits(phone);
+    if (!p) return Promise.reject(new Error("차단할 휴대폰 번호를 입력해 주세요."));
+    return rpc("admin_block_phone", {
+      p_phone: p,
+      p_reason: reason ? String(reason).trim() : null,
+      p_pin: null,
+    })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return {
+          phone_digits: String((raw && raw.phone_digits) || p),
+          reason: (raw && raw.reason) || "",
+        };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 휴대폰 번호 차단 해제 */
+  function unblockPhone(phone) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    var p = digits(phone);
+    if (!p) return Promise.reject(new Error("해제할 휴대폰 번호를 입력해 주세요."));
+    return rpc("admin_unblock_phone", { p_phone: p, p_pin: null })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return { phone_digits: String((raw && raw.phone_digits) || p) };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 차단된 카카오 계정 목록 */
+  function listBlockedKakao() {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    return rpc("admin_list_blocked_kakao", { p_pin: null })
+      .then(function (data) {
+        var list = Array.isArray(data) ? data : (data ? [data] : []);
+        return list.map(function (b) {
+          return {
+            kakao_id: String(b.kakao_id || ""),
+            label: b.label || "",
+            reason: b.reason || "",
+            created_at: b.created_at,
+          };
+        });
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 카카오 계정 차단 해제 */
+  function unblockKakao(kakaoId) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    var id = String(kakaoId || "").trim();
+    if (!id) return Promise.reject(new Error("해제할 카카오 계정을 골라 주세요."));
+    return rpc("admin_unblock_kakao", { p_kakao_id: id, p_pin: null })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return { kakao_id: String((raw && raw.kakao_id) || id) };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 회원 휴대폰 번호 변경 (오픈톡 문의로 요청한 경우) */
+  function updateMemberPhone(userId, phone) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    if (!userId) return Promise.reject(new Error("회원을 선택해 주세요."));
+    var p = digits(phone);
+    if (!p) return Promise.reject(new Error("새 휴대폰 번호를 입력해 주세요."));
+    return rpc("admin_update_member_phone", {
+      p_user_id: userId,
+      p_new_phone: p,
+      p_pin: null,
+    })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return {
+          user_id: userId,
+          phone: String((raw && raw.phone) || p),
+          old_phone: String((raw && raw.old_phone) || ""),
+        };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
+  /* 사장님: 회원 계정 삭제 (기본: 휴대폰 번호·카카오 계정 자동 차단) */
+  function deleteMember(userId, alsoBlockPhone, reason) {
+    if (mode !== "db") return Promise.reject(demoAuthError());
+    if (!userId) return Promise.reject(new Error("삭제할 회원을 골라 주세요."));
+    return rpc("admin_delete_member", {
+      p_user_id: userId,
+      p_also_block_phone: alsoBlockPhone !== false,
+      p_reason: reason ? String(reason).trim() : null,
+      p_pin: null,
+    })
+      .then(function (data) {
+        var raw = Array.isArray(data) ? data[0] : data;
+        return {
+          user_id: userId,
+          name: String((raw && raw.name) || ""),
+          phone_digits: String((raw && raw.phone_digits) || ""),
+          blocked: !!(raw && raw.blocked),
+          kakao_blocked: Number((raw && raw.kakao_blocked) || 0),
+        };
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
   /* 사장님 설정: 비로그인 주문 허용 여부 */
   function requireLogin() {
     return !!settings.requireLogin;
@@ -2779,6 +3069,17 @@
     listMemberPoints: listMemberPoints,
     adjustPoints: adjustPoints,
     getMemberPointHistory: getMemberPointHistory,
+    listBlockedPhones: listBlockedPhones,
+    blockPhone: blockPhone,
+    unblockPhone: unblockPhone,
+    listBlockedKakao: listBlockedKakao,
+    unblockKakao: unblockKakao,
+    updateMemberPhone: updateMemberPhone,
+    deleteMember: deleteMember,
+    myProfile: myProfile,
+    profileReady: profileReady,
+    saveMyProfile: saveMyProfile,
+    signInWithKakao: signInWithKakao,
     user: currentUser,
     userMeta: userMeta,
     displayId: displayId,

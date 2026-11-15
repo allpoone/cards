@@ -155,7 +155,7 @@
 
   /* ── 화면 상태 헬퍼 ───────────────────────────────────── */
   function anyOverlay() {
-    var ids = ["cartDrawer", "checkoutModal", "doneModal", "lookupModal", "detailModal", "authModal", "mypageModal"];
+    var ids = ["cartDrawer", "checkoutModal", "doneModal", "lookupModal", "detailModal", "authModal", "mypageModal", "profileModal"];
     for (var i = 0; i < ids.length; i++) {
       var el = $(ids[i]);
       if (el && !el.hidden) return true;
@@ -655,8 +655,9 @@
     };
     var demo = s.isDemo();
 
-    /* 가입된 계정에 휴대폰 번호가 있으면 주문서에서 자동 입력 + 수정 불가 */
-    var phoneLocked = !!(user && meta && meta.phone);
+    /* 로그인 회원은 이름·입금자명·휴대폰이 모두 회원 정보로 고정됩니다.
+       (DB 트리거도 회원 주문은 profiles 값으로 강제합니다) */
+    var memberFixed = !!(user && meta && meta.name && meta.phone);
 
     var accountLine = user
       ? '<p class="co__member">' + esc(userLabel(user)) + "님 계정으로 주문합니다. <span>" + esc(userContact(user)) + "</span></p>"
@@ -683,20 +684,25 @@
       '<legend>주문자 정보</legend>' +
       '<div class="field">' +
       '<label for="coName">주문자명 <span class="req">*</span></label>' +
-      '<input id="coName" name="name" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" value="' + esc(buyer.name || "") + '" />' +
+      '<input id="coName" name="name" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" value="' + esc(buyer.name || "") + '"' +
+      (memberFixed ? ' readonly aria-readonly="true" class="is-locked"' : "") + " />" +
+      (memberFixed ? '<p class="field__hint"><b>회원 정보로 고정됩니다.</b></p>' : "") +
       '<p class="field__err" data-err="coName" hidden></p>' +
       "</div>" +
       '<div class="field">' +
       '<label for="coDepositor">입금자명 <span class="opt">(주문자와 다를 때만)</span></label>' +
-      '<input id="coDepositor" name="depositor" type="text" maxlength="30" placeholder="실제 입금자 이름" />' +
-      '<p class="field__hint">은행 이체 시 표시되는 이름이 다르면 적어 주세요. 확인이 빨라집니다.</p>' +
+      '<input id="coDepositor" name="depositor" type="text" maxlength="30" placeholder="실제 입금자 이름"' +
+      (memberFixed ? ' readonly aria-readonly="true" class="is-locked"' : "") + " />" +
+      (memberFixed
+        ? '<p class="field__hint">입금자명도 <b>회원 정보로 고정됩니다.</b> 실제 입금자가 다르면 입금 전에 오픈톡으로 알려 주세요.</p>'
+        : '<p class="field__hint">은행 이체 시 표시되는 이름이 다르면 적어 주세요. 확인이 빨라집니다.</p>') +
       "</div>" +
       '<div class="field">' +
       '<label for="coPhone">연락처(휴대폰) <span class="req">*</span></label>' +
       '<input id="coPhone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" value="' + esc(buyer.phone || "") + '"' +
-      (phoneLocked ? ' readonly aria-readonly="true" class="is-locked"' : "") + " />" +
-      (phoneLocked
-        ? '<p class="field__hint"><b>가입된 번호</b>로 주문합니다. 번호를 바꾸려면 <b>마이페이지 → 내 정보</b>에서 변경해 주세요.</p>'
+      (memberFixed ? ' readonly aria-readonly="true" class="is-locked"' : "") + " />" +
+      (memberFixed
+        ? '<p class="field__hint"><b>회원 정보로 고정됩니다.</b> 번호 변경은 오픈톡으로 문의해 주세요.</p>'
         : "") +
       '<p class="field__err" data-err="coPhone" hidden></p>' +
       "</div>" +
@@ -834,6 +840,14 @@
       memo: ($("coMemo").value || "").trim(),
       usePoints: checkoutUsePoints || 0,
     };
+
+    /* 회원 주문은 이름·입금자명·휴대폰을 회원 정보로 강제합니다 (DB도 같은 규칙). */
+    var s2meta = currentUser() && s.userMeta ? s.userMeta() : {};
+    if (s2meta && s2meta.name && s2meta.phone) {
+      form.name = String(s2meta.name);
+      form.depositor = String(s2meta.name);
+      form.phone = phoneText(digits(s2meta.phone));
+    }
 
     var bad = validate(form);
     var errBox = $("checkoutError");
@@ -1516,6 +1530,12 @@
       (isSignup ? "가입하기" : "로그인") +
       "</button>" +
       "</form>" +
+      (demo
+        ? ""
+        : '<div class="auth__or"><span>또는</span></div>' +
+          '<button class="btn btn--kakao-login btn--block" type="button" data-kakao-login>' +
+          '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3C7.03 3 3 6.2 3 10.14c0 2.53 1.68 4.75 4.21 6.02-.14.5-.53 1.86-.6 2.15-.1.4.16.4.34.29.14-.09 2.2-1.5 3.09-2.09.63.09 1.29.14 1.96.14 4.97 0 9-3.2 9-7.14S16.97 3 12 3z"/></svg>' +
+          "카카오로 로그인</button>") +
       '<div class="auth__foot">' +
       '<button class="btn btn--ghost btn--xs" type="button" data-auth-guest>비회원으로 주문하기</button>' +
       '<span class="auth__foot-note">' +
@@ -1711,6 +1731,172 @@
   }
 
   /* ============================================================
+     카카오 로그인 · 프로필 완성 모달
+     ============================================================ */
+  function startKakaoLogin() {
+    var s = authSdk();
+    if (!s || !s.signInWithKakao) return;
+    setAuthError("");
+    var btn = document.querySelector("[data-kakao-login]");
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.label = btn.textContent;
+      btn.textContent = "카카오로 이동 중…";
+    }
+    s.signInWithKakao()
+      .then(function (res) {
+        /* 성공하면 카카오 화면으로 이동합니다. */
+        if (!(res && res.redirecting)) {
+          if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || "카카오로 로그인"; }
+        }
+      })
+      .catch(function (err) {
+        if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || "카카오로 로그인"; }
+        var msg = (err && err.message) || "카카오 로그인을 시작하지 못했습니다.";
+        if (/provider.*not|unsupported|invalid/i.test(msg)) {
+          msg = "카카오 로그인이 아직 준비 중입니다. 잠시 후 다시 시도해 주세요.";
+        }
+        setAuthError(msg);
+      });
+  }
+
+  var profileSaving = false;
+
+  function profileError(msg) {
+    var box = $("profileError");
+    if (!box) return;
+    box.textContent = msg || "";
+    box.hidden = !msg;
+  }
+
+  function profileBusy(on) {
+    var btn = $("profileSave");
+    if (!btn) return;
+    btn.disabled = !!on;
+    if (on) {
+      btn.dataset.label = btn.textContent;
+      btn.textContent = "저장 중…";
+    } else if (btn.dataset.label) {
+      btn.textContent = btn.dataset.label;
+    }
+  }
+
+  function openProfileCompletion() {
+    var s = authSdk();
+    var user = currentUser();
+    if (!s || !user) return;
+    var meta = user.user_metadata || {};
+    var name = String(meta.name || "");
+    var phone = digits(meta.phone);
+
+    $("profileBody").innerHTML =
+      '<div class="auth">' +
+      '<p class="auth__eyebrow">PROFILE</p>' +
+      '<h2 class="auth__title" id="profileTitle">프로필 완성</h2>' +
+      '<p class="auth__lede">쇼핑몰 이용에 필요한 <b>이름</b>과 <b>휴대폰 번호</b>를 한 번만 등록해 주세요.\n등록한 번호는 주문서에 자동으로 채워지고, 이후에는 직접 바꿀 수 없습니다 (번호 변경은 오픈톡으로 문의해 주세요).</p>' +
+      '<form id="profileForm" class="auth__form" novalidate>' +
+      '<div class="field">' +
+      '<label for="profileName">이름 <span class="req">*</span></label>' +
+      '<input id="profileName" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" value="' + esc(name) + '" />' +
+      "</div>" +
+      '<div class="field">' +
+      '<label for="profilePhone">휴대폰 번호 <span class="req">*</span></label>' +
+      '<input id="profilePhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" placeholder="010-0000-0000" value="' + esc(phoneText(phone)) + '" />' +
+      '<p class="field__err" id="profilePhoneErr" hidden></p>' +
+      "</div>" +
+      '<p class="auth__error" id="profileError" role="alert" hidden></p>' +
+      '<button class="btn btn--gold btn--block" type="submit" id="profileSave">등록하고 계속하기</button>' +
+      '<button class="btn btn--text btn--block" type="button" data-auth-logout>다른 계정으로 로그인</button>' +
+      "</form>" +
+      "</div>";
+
+    openEl($("profileModal"));
+    var first = $("profileName");
+    if (first) setTimeout(function () { try { first.focus(); } catch (e) {} }, 80);
+  }
+
+  function closeProfileCompletion() {
+    closeEl($("profileModal"));
+  }
+
+  function submitProfileCompletion() {
+    var s = authSdk();
+    var user = currentUser();
+    if (!s || !user || profileSaving) return;
+    var name = (($("profileName") || {}).value || "").trim();
+    var phone = digits(($("profilePhone") || {}).value || "");
+    var phoneErr = $("profilePhoneErr");
+    if (phoneErr) { phoneErr.textContent = ""; phoneErr.hidden = true; }
+    profileError("");
+
+    if (!name) {
+      profileError("이름을 입력해 주세요.");
+      if ($("profileName")) $("profileName").focus();
+      return;
+    }
+    if (!phone || !/^01[016789][0-9]{7,8}$/.test(phone)) {
+      if (phoneErr) {
+        phoneErr.textContent = "휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)";
+        phoneErr.hidden = false;
+      }
+      if ($("profilePhone")) $("profilePhone").focus();
+      return;
+    }
+
+    profileBusy(true);
+    var ready = s.checkPhoneAvailable ? s.checkPhoneAvailable(phone) : Promise.resolve({ ok: true });
+    ready
+      .then(function (chk) {
+        if (chk && chk.ok === false) {
+          profileBusy(false);
+          if (phoneErr) {
+            phoneErr.textContent = "이미 가입된 휴대폰 번호입니다.";
+            phoneErr.hidden = false;
+          }
+          if ($("profilePhone")) $("profilePhone").focus();
+          return null;
+        }
+        return s.saveMyProfile(name, phone);
+      })
+      .then(function (res) {
+        if (!res) return;
+        profileBusy(false);
+        closeProfileCompletion();
+        renderAccount();
+        toast("프로필을 등록했습니다. 쇼핑을 시작해 보세요!", "ok");
+        if (authNext === "checkout") { openCheckout(); authNext = ""; }
+      })
+      .catch(function (err) {
+        profileBusy(false);
+        profileError((err && err.message) || "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      });
+  }
+
+  /* 로그인 직후: 이름·번호가 비었으면 프로필 완성 모달을 엽니다.
+     차단된 카카오 계정이면 즉시 로그아웃 + 안내합니다. */
+  function checkProfileCompletion() {
+    var s = authSdk();
+    var user = currentUser();
+    if (!s || !user || !s.myProfile) return Promise.resolve();
+    if (s.isAdminUser && s.isAdminUser(user)) return Promise.resolve();
+    return s.myProfile(true)
+      .then(function (p) {
+        if (!currentUser()) return;
+        if (p && p.blocked) {
+          s.signOutUser().then(function () {
+            renderAccount();
+            toast(p.block_reason || "이용이 제한된 카카오 계정입니다. 오픈톡으로 문의해 주세요.", "warn");
+          });
+          return;
+        }
+        if (p && p.needs_phone && $("profileModal") && $("profileModal").hidden) {
+          openProfileCompletion();
+        }
+      })
+      .catch(function () { /* 프로필 함수가 없으면 그냥 통과 */ });
+  }
+
+  /* ============================================================
      마이페이지 — 주문 내역 · 적립금 · 내 정보 / 비회원 주문 조회
      ============================================================ */
   var mypageTab = "orders";
@@ -1759,8 +1945,11 @@
       "</div>" +
       '<div class="field">' +
       '<label for="mpPhone">휴대폰 번호 <span class="req">*</span></label>' +
-      '<input id="mpPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" value="' + esc(phoneText(phone)) + '" placeholder="010-0000-0000" />' +
-      '<p class="field__hint">주문서 연락처로 자동 입력됩니다. 같은 번호로는 한 번만 가입할 수 있습니다.</p>' +
+      '<input id="mpPhone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" value="' + esc(phoneText(phone)) + '" placeholder="010-0000-0000"' +
+      (phone ? ' readonly aria-readonly="true" class="is-locked"' : "") + " />" +
+      (phone
+        ? '<p class="field__hint">번호 변경은 <b>오픈톡으로 문의</b>해 주세요. (직접 바꿀 수 없습니다)</p>'
+        : '<p class="field__hint">주문서 연락처로 자동 입력됩니다. 같은 번호로는 한 번만 가입할 수 있습니다.</p>') +
       '<p class="field__err" data-err="mpPhone" hidden></p>' +
       "</div>" +
       '<div class="mypage__grid">' +
@@ -2146,9 +2335,11 @@
     var oldPhone = digits(meta.phone);
 
     var name = (($("mpName") || {}).value || "").trim();
-    var phone = digits(($("mpPhone") || {}).value || "");
+    var phone = phoneLocked ? oldPhone : digits(($("mpPhone") || {}).value || "");
     var pw = ($("mpPw") || {}).value || "";
     var pw2 = ($("mpPw2") || {}).value || "";
+    /* 번호가 이미 등록된 회원은 번호를 바꿀 수 없습니다 (readonly — 서버도 막습니다). */
+    var phoneLocked = !!oldPhone;
 
     ["mpName", "mpPhone", "mpPw", "mpPw2"].forEach(function (k) { setMpFieldError(k, ""); });
     var box = $("mypageError");
@@ -2174,7 +2365,7 @@
       return;
     }
 
-    var phoneChanged = phone !== oldPhone;
+    var phoneChanged = phone !== oldPhone && !phoneLocked;
     if (!phoneChanged && name === oldName && !pw) {
       toast("바뀐 내용이 없습니다.", "info");
       return;
@@ -2182,7 +2373,7 @@
 
     setMpBusy(true);
 
-    /* 번호를 바꿀 때만 중복 가입 확인 */
+    /* 최초 1회 번호 등록일 때만 중복 가입 확인 */
     var check = phoneChanged && s.checkPhoneAvailable
       ? s.checkPhoneAvailable(phone)
       : Promise.resolve({ ok: true });
@@ -2195,7 +2386,7 @@
           if ($("mpPhone")) $("mpPhone").focus();
           return null;
         }
-        return s.updateProfile({ name: name, phone: phone, password: pw }).then(function () {
+        return s.updateProfile({ name: name, phone: phoneLocked ? undefined : phone, password: pw }).then(function () {
           setMpBusy(false);
           renderAccount();
           if ($("mpPw")) $("mpPw").value = "";
@@ -2336,6 +2527,21 @@
         doLogoutUser();
         return;
       }
+      if (t.closest("[data-kakao-login]")) {
+        e.preventDefault();
+        startKakaoLogin();
+        return;
+      }
+      if (t.closest("[data-close-profile]")) {
+        e.preventDefault();
+        closeEl($("profileModal"));
+        return;
+      }
+      if (t.closest("[data-profile-save]")) {
+        e.preventDefault();
+        submitProfileCompletion();
+        return;
+      }
       if (t.closest("[data-close-cart]")) {
         e.preventDefault();
         closeCart();
@@ -2421,6 +2627,16 @@
       }
     });
     $("authModal").addEventListener("submit", submitAuth);
+    $("profileModal").addEventListener("submit", function (e) {
+      e.preventDefault();
+      submitProfileCompletion();
+    });
+    $("profilePhone").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitProfileCompletion();
+      }
+    });
 
     $("mypageModal").addEventListener("click", function (e) {
       if (e.target.closest("[data-close-mypage]")) closeEl($("mypageModal"));
@@ -2462,7 +2678,10 @@
     window.addEventListener("apo:cart", renderCart);
     window.addEventListener("apo:products", renderCart);
     window.addEventListener("apo:orders", renderCart);
-    window.addEventListener("apo:auth", renderAccount);
+    window.addEventListener("apo:auth", function () {
+      renderAccount();
+      checkProfileCompletion();
+    });
     window.addEventListener("apo:settings", renderAccount);
     window.addEventListener("apo:points", function () { renderAccount(); if (!$("authModal").hidden) loadAuthPoints(); });
   }

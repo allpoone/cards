@@ -29,6 +29,8 @@
 --   point_transactions  적립·사용·환불·사장님 조정 내역
 --   deposit_events  은행 알림 자동 입금확인 처리 로그 (관리자만 조회)
 --   shop_public_settings  손님 화면 공개 설정 (비로그인 주문 허용 여부 · 기본 적립률)
+--   blocked_phones  악성 주문 차단 휴대폰 목록 (RPC 로만 접근, 주문·가입 차단)
+--   profiles        회원 이름·휴대폰 번호 (본인만 읽기, 쓰기는 RPC 로만)
 --   private.shop_settings  자동 입금확인 시크릿 (anon 접근 차단)
 --
 -- ▶ 이미 1차 스키마를 실행한 프로젝트
@@ -2120,6 +2122,679 @@ $$;
 
 comment on function public.admin_adjust_points(uuid, integer, text, text) is
   '관리자용 적립금 지급(+)/차감(-). 보유 적립금보다 많이 차감하지는 않습니다.';
+
+-- ============================================================
+-- 8-1. 악성 주문 차단 (휴대폰·카카오) · 회원 프로필 · 회원 계정 관리
+-- ------------------------------------------------------------
+-- 미입금 허위 주문을 반복하는 휴대폰 번호와 카카오 계정을 차단하고,
+-- 필요하면 그 회원의 로그인 계정까지 지웁니다. (주문 기록은 남습니다 — user_id 만 null)
+--   blocked_phones   차단된 휴대폰 번호(숫자만). RLS 로 직접 접근 차단,
+--                    security definer 함수(RPC)로만 읽고 씁니다.
+--   blocked_kakao    차단된 카카오 계정(kakao provider_id). RLS 로 직접 접근 차단.
+--   profiles         회원 이름·휴대폰 번호 (주문서·마이페이지 기준값).
+--                    본인 행만 읽을 수 있고, 쓰기는 RPC 로만 합니다.
+--   ensure_profile   새로 가입한 회원의 profiles 행을 자동으로 만듭니다.
+--   block_identity   차단된 카카오 계정으로는 로그인(identities 생성)이 막힙니다.
+--   orders_block_phone 트리거 — 차단된 번호·차단된 카카오·번호 미등록 회원은
+--                    주문이 만들어지지 않고, 회원 주문은 profiles 의 이름·번호로 고정됩니다.
+--   admin_block_phone / admin_unblock_phone / admin_list_blocked_phones
+--   admin_list_blocked_kakao / admin_unblock_kakao
+--   admin_update_member_phone — 사장님이 회원 번호를 직접 변경
+--   admin_delete_member — 계정·적립금 삭제 + 번호·카카오 계정 자동 차단
+--   my_profile / update_my_profile — 회원 본인 프로필 (번호는 최초 1회만 등록,
+--                    차단된 카카오 계정은 blocked: true 로 알려 줍니다)
+-- 긴급 증분 파일: supabase-patch-block-member.sql, supabase-patch-block-member-2.sql,
+--                 supabase-patch-member-profile.sql (내용 동일, ①②③ 순서로 실행)
+-- ============================================================
+create table if not exists public.blocked_phones (
+  phone_digits text primary key,
+  reason       text,
+  created_at   timestamptz not null default now()
+);
+
+alter table public.blocked_phones enable row level security;
+revoke all on table public.blocked_phones from anon, authenticated;
+
+create table if not exists public.blocked_kakao (
+  kakao_id   text primary key,
+  label      text,
+  reason     text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.blocked_kakao enable row level security;
+revoke all on table public.blocked_kakao from anon, authenticated;
+
+create table if not exists public.profiles (
+  id         uuid primary key references auth.users (id) on delete cascade,
+  name       text,
+  phone      text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+revoke all on table public.profiles from anon, authenticated;
+grant select on table public.profiles to authenticated;
+
+drop policy if exists profiles_read_own on public.profiles;
+create policy profiles_read_own on public.profiles
+  for select to authenticated
+  using (auth.uid() = id);
+
+insert into public.profiles (id, name, phone)
+select u.id,
+       nullif(btrim(coalesce(u.raw_user_meta_data ->> 'name', '')), ''),
+       nullif(regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g'), '')
+  from auth.users u
+on conflict (id) do nothing;
+
+create or replace function private.trg_ensure_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  insert into public.profiles (id, name, phone)
+  values (
+    new.id,
+    nullif(btrim(coalesce(new.raw_user_meta_data ->> 'name', '')), ''),
+    nullif(regexp_replace(coalesce(new.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g'), '')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+revoke all on function private.trg_ensure_profile() from public;
+
+drop trigger if exists ensure_profile on auth.users;
+create trigger ensure_profile
+  after insert on auth.users
+  for each row execute function private.trg_ensure_profile();
+
+create or replace function private.identity_blocked_reason(p_uid uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select coalesce(nullif(btrim(coalesce(b.reason, '')), ''),
+                  '이용이 제한된 카카오 계정입니다. 오픈톡으로 문의해 주세요.')
+    from auth.identities i
+    join public.blocked_kakao b
+      on b.kakao_id = coalesce(to_jsonb(i) ->> 'provider_id', i.identity_data ->> 'sub')
+   where i.user_id = p_uid
+     and i.provider = 'kakao'
+   limit 1;
+$$;
+
+revoke all on function private.identity_blocked_reason(uuid) from public;
+
+create or replace function private.trg_block_identity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+begin
+  if new.provider = 'kakao' and exists (
+       select 1
+         from public.blocked_kakao b
+        where b.kakao_id = coalesce(to_jsonb(new) ->> 'provider_id', new.identity_data ->> 'sub')
+     ) then
+    raise exception '이용이 제한된 카카오 계정입니다. 오픈톡으로 문의해 주세요.'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function private.trg_block_identity() from public;
+
+drop trigger if exists block_identity on auth.identities;
+create trigger block_identity
+  after insert on auth.identities
+  for each row execute function private.trg_block_identity();
+
+create or replace function public.check_phone_available(p_phone text)
+returns boolean
+language sql
+security definer
+set search_path = public, auth
+as $$
+  with d as (
+    select regexp_replace(coalesce(p_phone, ''), '\D', '', 'g') as v
+  )
+  select case
+    when (select v from d) = '' then true
+    else not exists (
+           select 1
+             from auth.users u
+            where regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g')
+                = (select v from d)
+         )
+         and not exists (
+           select 1
+             from public.profiles p
+            where regexp_replace(coalesce(p.phone, ''), '\D', '', 'g') = (select v from d)
+         )
+         and not exists (
+           select 1
+             from public.blocked_phones b
+            where b.phone_digits = (select v from d)
+         )
+  end;
+$$;
+
+create or replace function private.trg_orders_block_phone()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_digits text := regexp_replace(coalesce(new.phone, ''), '\D', '', 'g');
+  v_name   text;
+  v_phone  text;
+  v_reason text;
+begin
+  if v_digits != '' and exists (
+       select 1 from public.blocked_phones b where b.phone_digits = v_digits
+     ) then
+    raise exception '이용이 제한된 휴대폰 번호입니다. 오픈톡으로 문의해 주세요.'
+      using errcode = '42501';
+  end if;
+
+  if new.user_id is not null then
+    if not exists (select 1 from auth.users u where u.id = new.user_id) then
+      raise exception '회원 정보를 확인할 수 없습니다. 다시 로그인해 주세요.'
+        using errcode = '42501';
+    end if;
+
+    v_reason := private.identity_blocked_reason(new.user_id);
+    if v_reason is not null then
+      raise exception '%', v_reason using errcode = '42501';
+    end if;
+
+    select nullif(btrim(coalesce(p.name, '')), ''),
+           nullif(regexp_replace(coalesce(p.phone, ''), '\D', '', 'g'), '')
+      into v_name, v_phone
+      from public.profiles p
+     where p.id = new.user_id;
+
+    if v_phone is null then
+      raise exception '휴대폰 번호 등록이 필요합니다. 마이페이지에서 번호를 등록해 주세요.'
+        using errcode = '42501';
+    end if;
+
+    new.phone := v_phone;
+    if v_name is not null then
+      new.customer_name  := v_name;
+      new.depositor_name := v_name;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function private.trg_orders_block_phone() from public;
+
+drop trigger if exists orders_block_phone on public.orders;
+create trigger orders_block_phone
+  before insert on public.orders
+  for each row execute function private.trg_orders_block_phone();
+
+grant execute on function public.check_phone_available(text) to anon, authenticated;
+
+-- ── 사장님: 차단 번호·카카오 목록 / 해제 · 회원 계정 삭제 ──
+create or replace function public.admin_list_blocked_phones(p_pin text default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_list jsonb;
+begin
+  perform private.assert_admin(p_pin);
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'phone_digits', b.phone_digits,
+           'reason',       b.reason,
+           'created_at',   b.created_at
+         ) order by b.created_at desc), '[]'::jsonb)
+    into v_list
+    from public.blocked_phones b;
+
+  return coalesce(v_list, '[]'::jsonb);
+end;
+$$;
+
+create or replace function public.admin_block_phone(
+  p_phone  text,
+  p_reason text default null,
+  p_pin    text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_digits text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  perform private.assert_admin(p_pin);
+
+  if length(v_digits) not between 9 and 11 then
+    raise exception '휴대폰 번호를 정확히 입력해 주세요.' using errcode = '22023';
+  end if;
+
+  insert into public.blocked_phones (phone_digits, reason)
+  values (v_digits, v_reason)
+  on conflict (phone_digits) do update
+     set reason = coalesce(excluded.reason, public.blocked_phones.reason);
+
+  return jsonb_build_object(
+    'phone_digits', v_digits,
+    'reason',       v_reason,
+    'blocked',      true
+  );
+end;
+$$;
+
+create or replace function public.admin_unblock_phone(
+  p_phone text,
+  p_pin   text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_digits text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+begin
+  perform private.assert_admin(p_pin);
+
+  if v_digits = '' then
+    raise exception '해제할 휴대폰 번호를 입력해 주세요.' using errcode = '22023';
+  end if;
+
+  delete from public.blocked_phones b where b.phone_digits = v_digits;
+
+  return jsonb_build_object(
+    'phone_digits', v_digits,
+    'blocked',      false
+  );
+end;
+$$;
+
+create or replace function public.admin_list_blocked_kakao(p_pin text default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_list jsonb;
+begin
+  perform private.assert_admin(p_pin);
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'kakao_id',   b.kakao_id,
+           'label',      b.label,
+           'reason',     b.reason,
+           'created_at', b.created_at
+         ) order by b.created_at desc), '[]'::jsonb)
+    into v_list
+    from public.blocked_kakao b;
+
+  return coalesce(v_list, '[]'::jsonb);
+end;
+$$;
+
+create or replace function public.admin_unblock_kakao(
+  p_kakao_id text,
+  p_pin      text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id text := nullif(btrim(coalesce(p_kakao_id, '')), '');
+begin
+  perform private.assert_admin(p_pin);
+
+  if v_id is null then
+    raise exception '해제할 카카오 계정을 골라 주세요.' using errcode = '22023';
+  end if;
+
+  delete from public.blocked_kakao b where b.kakao_id = v_id;
+
+  return jsonb_build_object('kakao_id', v_id, 'blocked', false);
+end;
+$$;
+
+create or replace function public.admin_delete_member(
+  p_user_id          uuid,
+  p_also_block_phone boolean default true,
+  p_reason           text default null,
+  p_pin              text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_me      uuid := auth.uid();
+  v_digits  text;
+  v_name    text;
+  v_block   boolean := false;
+  v_kakao   int := 0;
+  v_reason  text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  perform private.assert_admin(p_pin);
+
+  if p_user_id is null then
+    raise exception '삭제할 회원을 골라 주세요.' using errcode = '22023';
+  end if;
+
+  if v_me = p_user_id then
+    raise exception '지금 로그인한 사장님 계정은 삭제할 수 없습니다.' using errcode = '22023';
+  end if;
+
+  if not exists (select 1 from auth.users u where u.id = p_user_id) then
+    raise exception '회원을 찾을 수 없습니다.' using errcode = '22023';
+  end if;
+
+  select coalesce(nullif(btrim(coalesce(p.name, '')), ''),
+                  nullif(btrim(coalesce(u.raw_user_meta_data ->> 'name', '')), '')),
+         coalesce(nullif(regexp_replace(coalesce(p.phone, ''), '\D', '', 'g'), ''),
+                  nullif(regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g'), ''))
+    into v_name, v_digits
+    from auth.users u
+    left join public.profiles p on p.id = u.id
+   where u.id = p_user_id;
+
+  if coalesce(p_also_block_phone, true) and v_digits is not null then
+    insert into public.blocked_phones (phone_digits, reason)
+    values (v_digits, coalesce(v_reason, '계정 삭제'))
+    on conflict (phone_digits) do update
+       set reason = coalesce(excluded.reason, public.blocked_phones.reason);
+    v_block := true;
+  end if;
+
+  insert into public.blocked_kakao (kakao_id, label, reason)
+  select coalesce(to_jsonb(i) ->> 'provider_id', i.identity_data ->> 'sub'),
+         nullif(btrim(coalesce(v_name, '') || ' ' || coalesce(v_digits, '')), ''),
+         coalesce(v_reason, '계정 삭제')
+    from auth.identities i
+   where i.user_id = p_user_id
+     and i.provider = 'kakao'
+     and coalesce(to_jsonb(i) ->> 'provider_id', i.identity_data ->> 'sub') is not null
+  on conflict (kakao_id) do update
+     set reason = coalesce(excluded.reason, public.blocked_kakao.reason);
+
+  get diagnostics v_kakao = row_count;
+
+  update public.orders
+     set user_id    = null,
+         updated_at = now()
+   where user_id = p_user_id;
+
+  delete from public.point_transactions where user_id = p_user_id;
+  delete from public.point_wallets      where user_id = p_user_id;
+  delete from public.profiles           where id      = p_user_id;
+  delete from auth.users                where id      = p_user_id;
+
+  return jsonb_build_object(
+    'user_id',      p_user_id,
+    'name',         coalesce(v_name, ''),
+    'phone_digits', coalesce(v_digits, ''),
+    'blocked',      v_block,
+    'kakao_blocked', v_kakao
+  );
+end;
+$$;
+
+grant execute on function public.admin_list_blocked_phones(text)                 to anon, authenticated;
+grant execute on function public.admin_block_phone(text, text, text)             to anon, authenticated;
+grant execute on function public.admin_unblock_phone(text, text)                 to anon, authenticated;
+grant execute on function public.admin_list_blocked_kakao(text)                  to anon, authenticated;
+grant execute on function public.admin_unblock_kakao(text, text)                 to anon, authenticated;
+grant execute on function public.admin_delete_member(uuid, boolean, text, text)  to anon, authenticated;
+
+-- ── 회원 번호 변경 · 프로필 (번호는 최초 1회만 등록) ──
+create or replace function public.admin_update_member_phone(
+  p_user_id   uuid,
+  p_new_phone text,
+  p_pin       text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_digits text := regexp_replace(coalesce(p_new_phone, ''), '\D', '', 'g');
+  v_old    text;
+begin
+  perform private.assert_admin(p_pin);
+
+  if p_user_id is null then
+    raise exception '번호를 바꿀 회원을 골라 주세요.' using errcode = '22023';
+  end if;
+
+  if v_digits !~ '^01[016789][0-9]{7,8}$' then
+    raise exception '휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)'
+      using errcode = '22023';
+  end if;
+
+  if exists (select 1 from public.blocked_phones b where b.phone_digits = v_digits) then
+    raise exception '차단된 번호입니다. 차단을 먼저 해제해 주세요.' using errcode = '22023';
+  end if;
+
+  if not exists (select 1 from auth.users u where u.id = p_user_id) then
+    raise exception '회원을 찾을 수 없습니다.' using errcode = '22023';
+  end if;
+
+  if exists (
+       select 1
+         from auth.users u
+        where u.id != p_user_id
+          and regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g') = v_digits
+     )
+     or exists (
+       select 1
+         from public.profiles p
+        where p.id != p_user_id
+          and regexp_replace(coalesce(p.phone, ''), '\D', '', 'g') = v_digits
+     ) then
+    raise exception '이미 다른 회원이 쓰는 번호입니다.' using errcode = '22023';
+  end if;
+
+  select nullif(regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g'), '')
+    into v_old
+    from auth.users u
+   where u.id = p_user_id;
+
+  insert into public.profiles (id, name, phone, updated_at)
+  values (
+    p_user_id,
+    (select nullif(btrim(coalesce(u.raw_user_meta_data ->> 'name', '')), '')
+       from auth.users u where u.id = p_user_id),
+    v_digits,
+    now()
+  )
+  on conflict (id) do update
+     set phone      = excluded.phone,
+         updated_at = now();
+
+  update auth.users
+     set raw_user_meta_data =
+           coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('phone', v_digits),
+         updated_at = now()
+   where id = p_user_id;
+
+  return jsonb_build_object(
+    'user_id',   p_user_id,
+    'phone',     v_digits,
+    'old_phone', coalesce(v_old, '')
+  );
+end;
+$$;
+
+create or replace function public.my_profile()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_name   text;
+  v_phone  text;
+  v_reason text;
+begin
+  if v_uid is null then
+    return jsonb_build_object(
+      'user_id', null, 'name', '', 'phone', '',
+      'needs_phone', true, 'blocked', false, 'block_reason', ''
+    );
+  end if;
+
+  v_reason := private.identity_blocked_reason(v_uid);
+
+  select nullif(btrim(coalesce(p.name, '')), ''),
+         nullif(regexp_replace(coalesce(p.phone, ''), '\D', '', 'g'), '')
+    into v_name, v_phone
+    from public.profiles p
+   where p.id = v_uid;
+
+  if v_phone is null then
+    select nullif(btrim(coalesce(u.raw_user_meta_data ->> 'name', '')), ''),
+           nullif(regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g'), '')
+      into v_name, v_phone
+      from auth.users u
+     where u.id = v_uid;
+  end if;
+
+  return jsonb_build_object(
+    'user_id',      v_uid,
+    'name',         coalesce(v_name, ''),
+    'phone',        coalesce(v_phone, ''),
+    'needs_phone',  v_phone is null,
+    'blocked',      v_reason is not null,
+    'block_reason', coalesce(v_reason, '')
+  );
+end;
+$$;
+
+create or replace function public.update_my_profile(
+  p_name  text default null,
+  p_phone text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, pg_temp
+as $$
+declare
+  v_uid      uuid := auth.uid();
+  v_digits   text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  v_reason   text;
+  v_cur      text;
+  v_name     text := nullif(btrim(coalesce(p_name, '')), '');
+  v_cur_name text;
+begin
+  if v_uid is null then
+    raise exception '로그인 후 이용해 주세요.' using errcode = '42501';
+  end if;
+
+  v_reason := private.identity_blocked_reason(v_uid);
+  if v_reason is not null then
+    raise exception '%', v_reason using errcode = '42501';
+  end if;
+
+  select nullif(regexp_replace(coalesce(p.phone, ''), '\D', '', 'g'), ''),
+         nullif(btrim(coalesce(p.name, '')), '')
+    into v_cur, v_cur_name
+    from public.profiles p
+   where p.id = v_uid;
+
+  if v_digits != '' then
+    if v_cur is not null and v_cur != v_digits then
+      raise exception '휴대폰 번호는 직접 바꿀 수 없습니다. 오픈톡으로 문의해 주세요.'
+        using errcode = '42501';
+    end if;
+
+    if v_digits !~ '^01[016789][0-9]{7,8}$' then
+      raise exception '휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)'
+        using errcode = '22023';
+    end if;
+
+    if exists (select 1 from public.blocked_phones b where b.phone_digits = v_digits) then
+      raise exception '이용이 제한된 휴대폰 번호입니다. 오픈톡으로 문의해 주세요.'
+        using errcode = '42501';
+    end if;
+
+    if exists (
+         select 1
+           from auth.users u
+          where u.id != v_uid
+            and regexp_replace(coalesce(u.raw_user_meta_data ->> 'phone', ''), '\D', '', 'g') = v_digits
+       )
+       or exists (
+         select 1
+           from public.profiles p
+          where p.id != v_uid
+            and regexp_replace(coalesce(p.phone, ''), '\D', '', 'g') = v_digits
+       ) then
+      raise exception '이미 가입된 휴대폰 번호입니다.' using errcode = '22023';
+    end if;
+  end if;
+
+  insert into public.profiles (id, name, phone, updated_at)
+  values (v_uid, coalesce(v_name, v_cur_name), nullif(v_digits, ''), now())
+  on conflict (id) do update
+     set name       = coalesce(v_name, public.profiles.name),
+         phone      = coalesce(nullif(v_digits, ''), public.profiles.phone),
+         updated_at = now();
+
+  update auth.users
+     set raw_user_meta_data =
+           coalesce(raw_user_meta_data, '{}'::jsonb)
+           || jsonb_build_object('name', coalesce(v_name, v_cur_name, ''))
+           || case when v_digits != ''
+                   then jsonb_build_object('phone', v_digits)
+                   else '{}'::jsonb end,
+         updated_at = now()
+   where id = v_uid;
+
+  return public.my_profile();
+end;
+$$;
+
+revoke all on function public.admin_update_member_phone(uuid, text, text) from public;
+revoke all on function public.my_profile() from public;
+revoke all on function public.update_my_profile(text, text) from public;
+revoke all on function public.my_profile() from anon;
+revoke all on function public.update_my_profile(text, text) from anon;
+
+grant execute on function public.admin_update_member_phone(uuid, text, text) to anon, authenticated;
+grant execute on function public.my_profile() to authenticated;
+grant execute on function public.update_my_profile(text, text) to authenticated;
 
 -- ============================================================
 -- 9. 자동 입금 확인 (은행 알림 → 입금완료)

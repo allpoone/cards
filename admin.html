@@ -9,8 +9,8 @@
 <link rel="icon" type="image/png" sizes="160x160" href="logo-160.png" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=202611160718" />
-<link rel="stylesheet" href="admin.css?v=202611160718" />
+<link rel="stylesheet" href="styles.css?v=202611160805" />
+<link rel="stylesheet" href="admin.css?v=202611160805" />
 </head>
 <body class="admin-body">
 
@@ -98,6 +98,7 @@
       <button class="admin-tab" type="button" role="tab" data-admin-tab="orders" aria-selected="true">주문 관리</button>
       <button class="admin-tab" type="button" role="tab" data-admin-tab="products" aria-selected="false">상품 관리</button>
       <button class="admin-tab" type="button" role="tab" data-admin-tab="members" aria-selected="false">회원 적립금</button>
+      <button class="admin-tab" type="button" role="tab" data-admin-tab="manage" aria-selected="false">회원 관리</button>
       <button class="admin-tab" type="button" role="tab" data-admin-tab="events" aria-selected="false">입금 로그</button>
     </nav>
 
@@ -250,7 +251,61 @@
       </section>
     </div>
 
-    <!-- ── 4. 입금 로그 ──────────────────────────────── -->
+    <!-- ── 4. 회원 관리 (차단 번호 · 회원 번호 변경 · 계정 삭제) ── -->
+    <div class="admin-pane" data-admin-pane="manage" hidden>
+
+      <section class="panel" id="blockPanel">
+        <header class="panel__head">
+          <div>
+            <h2 class="panel__title">차단된 번호 관리</h2>
+            <p class="panel__desc">미입금 허위 주문이 들어온 휴대폰 번호를 차단합니다. 차단된 번호는 <b>회원가입도 주문도 모두 막힙니다.</b> 회원이 아닌 주문자의 번호도 바로 입력해 차단할 수 있습니다.</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" type="button" id="blockReloadBtn">새로고침</button>
+        </header>
+        <div class="block-form">
+          <label class="pf"><span>휴대폰 번호</span>
+            <input type="tel" id="blockPhoneInput" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="010-0000-0000" />
+          </label>
+          <label class="pf pf--wide"><span>사유 <em>(선택)</em></span>
+            <input type="text" id="blockReasonInput" maxlength="60" placeholder="예: 미입금 허위 주문 반복" />
+          </label>
+          <button class="btn btn--danger btn--sm" type="button" id="blockPhoneBtn">번호 차단</button>
+        </div>
+        <p class="set-hint" id="blockHint" hidden></p>
+        <ul class="block-list" id="blockList"></ul>
+        <p class="admin-empty__desc" id="blockEmpty" hidden>차단된 번호가 없습니다.</p>
+      </section>
+
+      <section class="panel" id="kakaoPanel">
+        <header class="panel__head">
+          <div>
+            <h2 class="panel__title">차단된 카카오 계정</h2>
+            <p class="panel__desc">회원 계정을 삭제할 때 그 회원이 카카오로 로그인한 계정이면 <b>카카오 계정도 자동으로 차단</b>됩니다. 차단된 카카오 계정은 다시 로그인해도 바로 막히며, 여기서 해제할 수 있습니다.</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" type="button" id="kakaoReloadBtn">새로고침</button>
+        </header>
+        <ul class="block-list" id="kakaoList"></ul>
+        <p class="admin-empty__desc" id="kakaoEmpty" hidden>차단된 카카오 계정이 없습니다.</p>
+      </section>
+
+      <section class="panel" id="managePanel">
+        <header class="panel__head">
+          <div>
+            <h2 class="panel__title">회원 관리</h2>
+            <p class="panel__desc">회원의 휴대폰 번호를 바꾸거나 차단하고, 필요하면 계정을 삭제합니다. <b>[계정 삭제]</b>는 로그인 계정과 적립금을 지우고 주문 기록은 남기며, <b>그 번호를 자동으로 차단</b>합니다.</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" type="button" id="manageReloadBtn">새로고침</button>
+        </header>
+        <div class="member-search">
+          <input type="search" id="manageSearch" placeholder="아이디 · 이름 · 휴대폰 번호로 검색" aria-label="회원 검색" autocomplete="off" />
+          <button class="btn btn--ghost btn--sm" type="button" id="manageSearchBtn">검색</button>
+        </div>
+        <div class="member-list" id="manageList"></div>
+        <p class="admin-empty__desc" id="manageEmpty" hidden>아직 가입한 회원이 없습니다.</p>
+      </section>
+    </div>
+
+    <!-- ── 5. 입금 로그 ──────────────────────────────── -->
     <div class="admin-pane" data-admin-pane="events" hidden>
       <section class="panel" id="eventPanel">
         <header class="panel__head">
@@ -273,8 +328,8 @@
 
 <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script src="cards.js?v=202611160718"></script>
-<script src="store.js?v=202611160718"></script>
-<script src="admin.js?v=202611160718"></script>
+<script src="cards.js?v=202611160805"></script>
+<script src="store.js?v=202611160805"></script>
+<script src="admin.js?v=202611160805"></script>
 </body>
 </html>

@@ -803,3 +803,48 @@
   letter-spacing: 0.04em;
 }
 
+
+/* ── 회원 관리: 차단 번호 · 차단 카카오 · 회원 카드 액션 ── */
+.block-form { display: flex; flex-wrap: wrap; gap: 9px; align-items: flex-end; padding: 2px 0 6px; }
+.block-form .pf { flex: 1 1 150px; }
+.block-form .pf--wide { flex: 2 1 220px; }
+.block-form > .btn { flex: none; }
+.block-list { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.blockrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+}
+.blockrow__main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 160px; }
+.blockrow__main b { font-size: 0.86rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.blockrow__main span {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.blockrow__main .blockrow__id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.64rem; opacity: 0.75; }
+.blockrow__when { font-size: 0.68rem; color: var(--text-faint); flex: none; font-variant-numeric: tabular-nums; }
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  flex: none;
+}
+.tag--danger { color: #ff8f86; background: rgba(255, 90, 78, 0.14); border: 1px solid rgba(255, 90, 78, 0.4); }
+.memprow__manage { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 13px 12px; }
+.memprow__phone-edit { padding: 4px 13px 13px; border-top: 1px solid var(--line); }
+
+/* 회원 관리 패널 여백 */
+#blockPanel .block-form,
+#kakaoPanel { margin-top: 0; }
+#kakaoPanel { margin-top: 14px; }

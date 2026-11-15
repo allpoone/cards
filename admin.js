@@ -33,7 +33,7 @@
 
   /* ── 사장님 페이지 탭 ─────────────────────────────────── */
   var adminTab = "orders";
-  var TAB_KEYS = ["orders", "products", "members", "events"];
+  var TAB_KEYS = ["orders", "products", "members", "manage", "events"];
 
   function renderTabs() {
     var tabs = document.querySelectorAll("[data-admin-tab]");
@@ -52,6 +52,7 @@
     if (adminTab === "orders") loadOrders();
     else if (adminTab === "products") renderProducts();
     else if (adminTab === "members") loadMembers();
+    else if (adminTab === "manage") loadManage();
     else if (adminTab === "events") loadEvents();
   }
 
@@ -1545,6 +1546,402 @@
       });
   }
 
+  /* ── 회원 관리 (차단 번호 · 차단 카카오 · 번호 변경 · 계정 삭제) ── */
+  var manageQuery = "";
+  var manageBusy = false;
+  var manageMembers = [];
+  var blockedPhones = [];
+  var blockedKakao = [];
+
+  function isBlockedPhone(d) {
+    var n = digits(d);
+    if (!n) return false;
+    for (var i = 0; i < blockedPhones.length; i++) {
+      if (digits(blockedPhones[i].phone_digits) === n) return true;
+    }
+    return false;
+  }
+
+  function blockRowHtml(phone, reason, when) {
+    return (
+      '<li class="blockrow" data-phone="' + esc(digits(phone)) + '">' +
+      '<div class="blockrow__main">' +
+      '<b>' + esc(phoneText(phone)) + "</b>" +
+      (reason ? "<span>" + esc(reason) + "</span>" : "") +
+      "</div>" +
+      (when ? '<span class="blockrow__when">' + esc(stamp(when)) + "</span>" : "") +
+      '<button class="btn btn--ghost btn--xs" type="button" data-unblock-phone>차단 해제</button>' +
+      "</li>"
+    );
+  }
+
+  function kakaoRowHtml(k) {
+    var sub = [k.label ? esc(k.label) : "", k.reason ? esc(k.reason) : ""]
+      .filter(Boolean).join(" · ");
+    return (
+      '<li class="blockrow" data-kakao="' + esc(k.kakao_id) + '">' +
+      '<div class="blockrow__main">' +
+      '<b>카카오 계정</b>' +
+      (sub ? "<span>" + sub + "</span>" : "") +
+      '<span class="blockrow__id">ID ' + esc(k.kakao_id) + "</span>" +
+      "</div>" +
+      (k.created_at ? '<span class="blockrow__when">' + esc(stamp(k.created_at)) + "</span>" : "") +
+      '<button class="btn btn--ghost btn--xs" type="button" data-unblock-kakao>차단 해제</button>' +
+      "</li>"
+    );
+  }
+
+  function renderBlockedPhones() {
+    var host = $("blockList");
+    var empty = $("blockEmpty");
+    if (!host) return;
+    if (!blockedPhones.length) {
+      host.innerHTML = "";
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    host.innerHTML = blockedPhones.map(function (b) {
+      return blockRowHtml(b.phone_digits, b.reason, b.created_at);
+    }).join("");
+  }
+
+  function renderBlockedKakao() {
+    var host = $("kakaoList");
+    var empty = $("kakaoEmpty");
+    if (!host) return;
+    if (!blockedKakao.length) {
+      host.innerHTML = "";
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    host.innerHTML = blockedKakao.map(kakaoRowHtml).join("");
+  }
+
+  function blockHint(msg) {
+    var el = $("blockHint");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.hidden = !msg;
+  }
+
+  function loadBlockedPhones() {
+    var s = window.APOStore;
+    if (!s || !s.listBlockedPhones) return Promise.resolve(blockedPhones);
+    if (s.isDemo()) {
+      blockedPhones = [];
+      renderBlockedPhones();
+      return Promise.resolve(blockedPhones);
+    }
+    return s.listBlockedPhones()
+      .then(function (list) {
+        blockedPhones = list || [];
+        blockHint("");
+        renderBlockedPhones();
+        return blockedPhones;
+      })
+      .catch(function (err) {
+        blockedPhones = [];
+        renderBlockedPhones();
+        blockHint(err && err.code === "NEED_UPGRADE"
+          ? "차단 기능은 DB 패치(supabase-patch-block-member.sql · -2.sql)를 실행한 뒤에 쓸 수 있습니다."
+          : ((err && err.message) || "차단 목록을 불러오지 못했습니다."));
+        return blockedPhones;
+      });
+  }
+
+  function loadBlockedKakao() {
+    var s = window.APOStore;
+    if (!s || !s.listBlockedKakao) return Promise.resolve(blockedKakao);
+    if (s.isDemo()) {
+      blockedKakao = [];
+      renderBlockedKakao();
+      return Promise.resolve(blockedKakao);
+    }
+    return s.listBlockedKakao()
+      .then(function (list) {
+        blockedKakao = list || [];
+        renderBlockedKakao();
+        return blockedKakao;
+      })
+      .catch(function () {
+        blockedKakao = [];
+        renderBlockedKakao();
+        return blockedKakao;
+      });
+  }
+
+  function manageRow(m) {
+    var d = digits(m.phone);
+    var blocked = isBlockedPhone(d);
+    var sub = [
+      m.username ? "아이디 " + m.username : "",
+      d ? phoneText(d) : "번호 없음",
+      m.joined_at ? stamp(m.joined_at) + " 가입" : "",
+    ].filter(Boolean).join(" · ");
+
+    return (
+      '<article class="memprow" data-user="' + esc(m.user_id) + '" data-name="' +
+      esc(m.name || m.username || "회원") + '" data-phone="' + esc(d) + '">' +
+      '<div class="memprow__top">' +
+      '<div class="memprow__who"><b>' + esc(m.name || m.username || "회원") + "</b>" +
+      '<span>' + esc(sub) + "</span></div>" +
+      (blocked ? '<span class="tag tag--danger">차단된 번호</span>' : "") +
+      "</div>" +
+      '<div class="memprow__manage">' +
+      '<button class="btn btn--ghost btn--xs" type="button" data-phone-edit>번호 수정</button>' +
+      '<button class="btn btn--ghost btn--xs" type="button" data-phone-block>' +
+      (blocked ? "차단됨 · 해제" : "번호 차단") + "</button>" +
+      '<button class="btn btn--danger btn--xs" type="button" data-member-delete>계정 삭제</button>' +
+      "</div>" +
+      '<div class="memprow__phone-edit" hidden>' +
+      '<div class="memprow__fields">' +
+      '<label class="pf"><span>새 휴대폰 번호</span>' +
+      '<input type="tel" inputmode="numeric" maxlength="13" data-new-phone value="' +
+      esc(phoneText(d)) + '" placeholder="010-0000-0000" /></label>' +
+      "</div>" +
+      '<div class="memprow__actions">' +
+      '<button class="btn btn--gold btn--sm" type="button" data-phone-save>저장</button>' +
+      '<button class="btn btn--text btn--xs" type="button" data-phone-edit>닫기</button>' +
+      "</div>" +
+      "</div>" +
+      "</article>"
+    );
+  }
+
+  function renderManage(list) {
+    var host = $("manageList");
+    var empty = $("manageEmpty");
+    if (!host) return;
+    if (!list || !list.length) {
+      host.innerHTML = "";
+      if (empty) {
+        empty.textContent = manageQuery
+          ? "‘" + manageQuery + "’ 와 맞는 회원이 없습니다."
+          : "아직 가입한 회원이 없습니다.";
+        empty.hidden = false;
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    host.innerHTML = list.map(manageRow).join("");
+  }
+
+  function loadManage() {
+    var s = window.APOStore;
+    if (!s || !s.listMemberPoints) return Promise.resolve();
+    if (s.isDemo()) {
+      manageMembers = [];
+      renderManage([]);
+      loadBlockedPhones();
+      loadBlockedKakao();
+      return Promise.resolve();
+    }
+    /* 차단 목록을 먼저 받아야 각 회원 카드에 [차단됨 · 해제] 를 맞게 그립니다. */
+    return Promise.all([loadBlockedPhones(), loadBlockedKakao()]).then(function () {
+      return s.listMemberPoints(manageQuery)
+        .then(function (list) {
+          manageMembers = list || [];
+          renderManage(manageMembers);
+          return manageMembers;
+        })
+        .catch(function (err) {
+          manageMembers = [];
+          renderManage([]);
+          var empty = $("manageEmpty");
+          if (empty) {
+            empty.textContent = (err && err.code === "NEED_UPGRADE")
+              ? "회원 관리는 supabase-upgrade-v3.sql 을 실행한 뒤에 쓸 수 있습니다."
+              : ((err && err.message) || "회원 목록을 불러오지 못했습니다.");
+            empty.hidden = false;
+          }
+          return [];
+        });
+    });
+  }
+
+  function refreshManageAll() {
+    return loadManage().then(function () {
+      return Promise.all([loadBlockedPhones(), loadBlockedKakao()]);
+    });
+  }
+
+  function blockPhoneFromPanel() {
+    var s = window.APOStore;
+    if (!s || !s.blockPhone || manageBusy) return;
+    var phone = digits(($("blockPhoneInput") || {}).value || "");
+    var reason = (($("blockReasonInput") || {}).value || "").trim();
+    if (!phone) {
+      toast("차단할 휴대폰 번호를 입력해 주세요.", "warn");
+      var el = $("blockPhoneInput");
+      if (el) el.focus();
+      return;
+    }
+    if (phone.length < 9 || phone.length > 11) {
+      toast("휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)", "warn");
+      return;
+    }
+    if (isBlockedPhone(phone)) {
+      toast("이미 차단된 번호입니다.", "info");
+      return;
+    }
+
+    var btn = $("blockPhoneBtn");
+    manageBusy = true;
+    setBusy(btn, true, "차단 중…");
+    s.blockPhone(phone, reason)
+      .then(function () {
+        manageBusy = false;
+        setBusy(btn, false);
+        if ($("blockPhoneInput")) $("blockPhoneInput").value = "";
+        if ($("blockReasonInput")) $("blockReasonInput").value = "";
+        toast(phoneText(phone) + " 번호를 차단했습니다.", "ok");
+        return refreshManageAll();
+      })
+      .catch(function (err) {
+        manageBusy = false;
+        setBusy(btn, false);
+        toast((err && err.message) || "번호를 차단하지 못했습니다.", "warn");
+      });
+  }
+
+  function unblockPhone(phone) {
+    var s = window.APOStore;
+    if (!s || !s.unblockPhone || manageBusy) return;
+    if (!phone) return;
+    if (!window.confirm(phoneText(phone) + " 번호의 차단을 해제할까요?\n해제하면 이 번호로 다시 가입·주문할 수 있습니다.")) return;
+    manageBusy = true;
+    s.unblockPhone(phone)
+      .then(function () {
+        manageBusy = false;
+        toast(phoneText(phone) + " 번호 차단을 해제했습니다.", "ok");
+        return refreshManageAll();
+      })
+      .catch(function (err) {
+        manageBusy = false;
+        toast((err && err.message) || "차단을 해제하지 못했습니다.", "warn");
+      });
+  }
+
+  function unblockKakao(kakaoId) {
+    var s = window.APOStore;
+    if (!s || !s.unblockKakao || manageBusy) return;
+    if (!kakaoId) return;
+    if (!window.confirm("이 카카오 계정의 차단을 해제할까요?\n해제하면 이 카카오 계정으로 다시 로그인할 수 있습니다.")) return;
+    manageBusy = true;
+    s.unblockKakao(kakaoId)
+      .then(function () {
+        manageBusy = false;
+        toast("카카오 계정 차단을 해제했습니다.", "ok");
+        return refreshManageAll();
+      })
+      .catch(function (err) {
+        manageBusy = false;
+        toast((err && err.message) || "차단을 해제하지 못했습니다.", "warn");
+      });
+  }
+
+  function togglePhoneBlock(row) {
+    var s = window.APOStore;
+    if (!s || manageBusy) return;
+    var d = digits(row.getAttribute("data-phone"));
+    var name = row.getAttribute("data-name") || "회원";
+    if (!d) {
+      toast("이 회원은 등록된 휴대폰 번호가 없습니다.", "warn");
+      return;
+    }
+    if (isBlockedPhone(d)) {
+      unblockPhone(d);
+      return;
+    }
+    if (!s.blockPhone) return;
+    if (!window.confirm("[" + name + "] 회원의 휴대폰 번호(" + phoneText(d) + ")를 차단할까요?\n차단하면 이 번호로 주문·회원가입이 모두 막힙니다.")) return;
+    manageBusy = true;
+    s.blockPhone(d, "회원 관리에서 차단")
+      .then(function () {
+        manageBusy = false;
+        toast(name + " 회원의 번호를 차단했습니다.", "ok");
+        return refreshManageAll();
+      })
+      .catch(function (err) {
+        manageBusy = false;
+        toast((err && err.message) || "번호를 차단하지 못했습니다.", "warn");
+      });
+  }
+
+  function saveMemberPhone(row) {
+    var s = window.APOStore;
+    if (!s || !s.updateMemberPhone || manageBusy) return;
+    var userId = row.getAttribute("data-user");
+    var name = row.getAttribute("data-name") || "회원";
+    var oldPhone = digits(row.getAttribute("data-phone"));
+    var input = row.querySelector("[data-new-phone]");
+    var next = digits(input ? input.value : "");
+    if (!next) {
+      toast("새 휴대폰 번호를 입력해 주세요.", "warn");
+      if (input) input.focus();
+      return;
+    }
+    if (!/^01[016789][0-9]{7,8}$/.test(next)) {
+      toast("휴대폰 번호를 정확히 입력해 주세요. (예: 010-0000-0000)", "warn");
+      if (input) input.focus();
+      return;
+    }
+    if (next === oldPhone) {
+      toast("지금 번호와 같습니다.", "info");
+      return;
+    }
+    if (!window.confirm("[" + name + "] 회원의 번호를 " +
+      (oldPhone ? phoneText(oldPhone) : "(없음)") + " → " + phoneText(next) + " 로 바꿀까요?")) return;
+
+    var btn = row.querySelector("[data-phone-save]");
+    manageBusy = true;
+    setBusy(btn, true, "저장 중…");
+    s.updateMemberPhone(userId, next)
+      .then(function (res) {
+        manageBusy = false;
+        setBusy(btn, false);
+        toast(name + " 회원 번호를 " + phoneText((res && res.phone) || next) + " 로 바꿨습니다.", "ok");
+        return refreshManageAll();
+      })
+      .catch(function (err) {
+        manageBusy = false;
+        setBusy(btn, false);
+        toast((err && err.message) || "번호를 바꾸지 못했습니다.", "warn");
+      });
+  }
+
+  function deleteMember(row) {
+    var s = window.APOStore;
+    if (!s || !s.deleteMember || manageBusy) return;
+    var userId = row.getAttribute("data-user");
+    var name = row.getAttribute("data-name") || "회원";
+    var d = digits(row.getAttribute("data-phone"));
+    var label = d ? phoneText(d) : "등록된 번호 없음";
+
+    var msg = "[" + name + "] 회원 계정을 삭제하고 휴대폰 번호(" + label + ")도 자동으로 차단할까요?\n" +
+      "\n· 로그인 계정과 적립금이 삭제됩니다. 주문 기록은 그대로 남습니다." +
+      "\n· 카카오로 로그인한 회원이면 카카오 계정도 함께 차단됩니다." +
+      (d ? "" : "\n· 등록된 번호가 없어 번호 차단은 건너뜁니다.");
+    if (!window.confirm(msg)) return;
+
+    manageBusy = true;
+    s.deleteMember(userId, true, "회원 관리에서 계정 삭제")
+      .then(function (res) {
+        manageBusy = false;
+        var extra = [];
+        if (res && res.phone_digits) extra.push("번호 " + phoneText(res.phone_digits) + " 차단");
+        if (res && res.kakao_blocked) extra.push("카카오 계정 차단");
+        toast(name + " 계정을 삭제했습니다." + (extra.length ? " (" + extra.join(" · ") + ")" : ""), "ok");
+        return refreshManageAll();
+      })
+      .catch(function (err) {
+        manageBusy = false;
+        toast((err && err.message) || "계정을 삭제하지 못했습니다.", "warn");
+      });
+  }
+
   /* ── 자동 입금 확인 로그 ──────────────────────────────── */
   var EVENT = {
     matched: { label: "자동 입금확인", cls: "matched" },
@@ -1726,6 +2123,69 @@
       e.preventDefault();
       var row = input.closest(".memprow");
       if (row) applyMemberPoints(row);
+    });
+
+    /* ── 회원 관리 (차단 번호 · 차단 카카오 · 번호 변경 · 계정 삭제) ── */
+    $("blockPhoneBtn").addEventListener("click", blockPhoneFromPanel);
+    $("blockPhoneInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); blockPhoneFromPanel(); }
+    });
+    $("blockReloadBtn").addEventListener("click", function () {
+      refreshManageAll().then(function () { toast("차단 목록과 회원 목록을 다시 불러왔습니다.", "ok"); });
+    });
+    $("kakaoReloadBtn").addEventListener("click", function () {
+      loadBlockedKakao().then(function () { toast("차단된 카카오 계정을 다시 불러왔습니다.", "ok"); });
+    });
+    $("manageReloadBtn").addEventListener("click", function () {
+      refreshManageAll().then(function () { toast("회원 목록을 다시 불러왔습니다.", "ok"); });
+    });
+    $("manageSearchBtn").addEventListener("click", function () {
+      manageQuery = ($("manageSearch").value || "").trim();
+      loadManage();
+    });
+    $("manageSearch").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      manageQuery = ($("manageSearch").value || "").trim();
+      loadManage();
+    });
+    $("blockList").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-unblock-phone]");
+      if (!btn) return;
+      var row = btn.closest(".blockrow");
+      if (row) unblockPhone(row.getAttribute("data-phone"));
+    });
+    $("kakaoList").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-unblock-kakao]");
+      if (!btn) return;
+      var row = btn.closest(".blockrow");
+      if (row) unblockKakao(row.getAttribute("data-kakao"));
+    });
+    $("manageList").addEventListener("click", function (e) {
+      var row = e.target.closest(".memprow");
+      if (!row) return;
+      if (e.target.closest("[data-phone-edit]")) {
+        var box = row.querySelector(".memprow__phone-edit");
+        if (!box) return;
+        var open = box.hidden;
+        box.hidden = !open;
+        if (open) {
+          var input = box.querySelector("[data-new-phone]");
+          if (input) input.focus();
+        }
+        return;
+      }
+      if (e.target.closest("[data-phone-save]")) { saveMemberPhone(row); return; }
+      if (e.target.closest("[data-phone-block]")) { togglePhoneBlock(row); return; }
+      if (e.target.closest("[data-member-delete]")) { deleteMember(row); return; }
+    });
+    $("manageList").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      var input = e.target.closest("[data-new-phone]");
+      if (!input) return;
+      e.preventDefault();
+      var row = input.closest(".memprow");
+      if (row) saveMemberPhone(row);
     });
 
     /* ── 주문 설정 토글 ── */

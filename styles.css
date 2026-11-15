@@ -2994,3 +2994,32 @@ body.auth-pending #headerUser { visibility: hidden; }
   .modal--page .modal__body > .detail,
   .modal--page .modal__body > .mypage { padding-top: 10px; }
 }
+
+/* ── 카카오 로그인 버튼 (로그인·회원가입 모달) ── */
+.btn--kakao-login {
+  background: #fee500;
+  color: #191600;
+  border-color: transparent;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.btn--kakao-login:hover { background: #fff06a; border-color: transparent; }
+.btn--kakao-login[disabled] { background: rgba(254, 229, 0, 0.4); color: rgba(25, 22, 0, 0.55); box-shadow: none; }
+.auth__or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+.auth__or::before,
+.auth__or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
