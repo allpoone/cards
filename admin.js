@@ -17,7 +17,6 @@
   };
 
   var TYPE = { box: "미개봉 박스", oripa: "오리파", etc: "기타" };
-  TYPE.single = "기타";   // 예전 분류 호환
   var GAME = { pokemon: "포켓몬", onepiece: "원피스", other: "기타" };
   var EDITION = { "": "해당없음", KR: "한판(KR)", JP: "일판(JP)", EN: "영판(EN)" };
 
@@ -396,7 +395,7 @@
   function rowMeta(p) {
     var s = window.APOStore;
     return [
-      TYPE[p.type] || p.type,
+      TYPE[p.type] || (p.type === "single" ? "기타" : p.type),
       GAME[p.game] || p.game,
       p.edition ? (EDITION[p.edition] || p.edition) : null,
       won(p.price) + " / " + (s ? s.unitOf(p) : "개"),
@@ -426,7 +425,7 @@
       '<label class="pf"><span>종목</span>' +
       '<select data-field="game">' + options(GAME, p.game) + "</select></label>" +
       '<label class="pf"><span>유형</span>' +
-      '<select data-field="type">' + options(TYPE, p.type) + "</select></label>" +
+      '<select data-field="type">' + options(TYPE, p.type === "single" ? "etc" : p.type) + "</select></label>" +
       '<label class="pf"><span>판본</span>' +
       '<select data-field="edition">' + options(EDITION, p.edition || "") + "</select></label>" +
       '<label class="pf"><span>가격(원)</span>' +
