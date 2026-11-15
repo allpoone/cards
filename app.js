@@ -301,25 +301,18 @@
   function cardMarkup(p, index) {
     var st = STATUS[p.status] || STATUS.available;
     var sold = p.status === "soldout";
-    var isOripa = p.type === "oripa";
     var mp = mainPrize(p);
 
+    /* 카드 하단은 [장바구니 담기] + [구매하기] 두 개만 — 나머지는 카드/제목을 누르면 상세 모달에서 */
     var cartBtn = sold
-      ? '<button class="btn btn--gold btn--cart" type="button" disabled>품절 · 담기 불가</button>'
-      : '<button class="btn btn--gold btn--cart" type="button" data-action="cart">' +
-        '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 4h2.2l2.3 11.2h10.3L20.5 7H6.2M9.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM17.5 19.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>' +
-        "장바구니 담기</button>";
+      ? '<button class="btn btn--ghost btn--cart" type="button" disabled>담기 불가</button>'
+      : '<button class="btn btn--ghost btn--cart" type="button" data-action="cart">장바구니 담기</button>';
 
-    var actions = cartBtn +
-      (isOripa
-        ? '<button class="btn btn--ghost" type="button" data-action="detail">당첨 라인업</button>' +
-          (sold
-            ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
-            : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 참여 문의</button>')
-        : '<button class="btn btn--ghost" type="button" data-action="detail">상세</button>' +
-          (sold
-            ? '<button class="btn btn--kakao" type="button" disabled>완판</button>'
-            : '<button class="btn btn--kakao" type="button" data-action="inquire">오픈톡 문의</button>'));
+    var buyBtn = sold
+      ? '<button class="btn btn--gold btn--buy" type="button" disabled>품절</button>'
+      : '<button class="btn btn--gold btn--buy" type="button" data-action="buy">구매하기</button>';
+
+    var actions = cartBtn + buyBtn;
 
     return (
       '<article class="card" data-status="' + esc(p.status) + '" data-type="' + esc(p.type) +
@@ -333,7 +326,7 @@
       '<h3 class="card__name">' + esc(p.name) + "</h3>" +
       '<p class="card__set">' + esc(p.series || "") + (p.setCode ? " · " + esc(p.setCode) : "") + "</p>" +
       '<p class="card__spec">' + esc(specText(p)) + "</p>" +
-      (isOripa && mp
+      (p.type === "oripa" && mp
         ? '<p class="card__prize">🏆 <b>' + esc(mp.label) + "</b> " + esc(mp.name) + "</p>"
         : "") +
       '<div class="card__price-row">' +
@@ -603,6 +596,21 @@
           return;
         }
         if (action === "inquire") { e.stopPropagation(); inquire(p); return; }
+        if (action === "buy") {
+          e.stopPropagation();
+          /* 1개 담고 바로 주문서로 — 품절/잔여수량은 addToCart 가, 회원필수는 openCheckout 이 막습니다 */
+          var buyRes = window.APOStore
+            ? APOStore.addToCart(p.id, 1)
+            : { ok: false, message: "장바구니를 사용할 수 없습니다." };
+          if (!buyRes.ok) {
+            toast(buyRes.message, "warn");
+            if (buyRes.reason === "stock" || buyRes.reason === "soldout") render();
+            return;
+          }
+          if (window.APOShop && APOShop.openCheckout) APOShop.openCheckout();
+          else if (window.APOShop) APOShop.openCart();
+          return;
+        }
       }
       if (!e.target.closest("button")) openModal(p);
     });
