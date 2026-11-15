@@ -1236,6 +1236,35 @@
     return saveProduct({ id: id, name: (getProduct(id) || {}).name, price: (getProduct(id) || {}).price, stock: stock });
   }
 
+  /* ── 관리자: 주문 삭제 (취소 · 발송완료 주문만) ─────────── */
+  function deleteOrder(orderNo) {
+    var no = String(orderNo == null ? "" : orderNo).trim();
+    if (!no) return Promise.reject(new Error("주문번호가 없습니다."));
+
+    if (mode !== "db") {
+      var list = readOrders();
+      var kept = list.filter(function (o) { return o.order_no !== no; });
+      if (kept.length === list.length) {
+        var e0 = new Error("주문을 찾을 수 없습니다.");
+        e0.code = "NOT_FOUND";
+        return Promise.reject(e0);
+      }
+      saveOrders(kept);
+      return Promise.resolve(true);
+    }
+
+    /* p_pin 은 null — 서버가 JWT(app_metadata.role = 'admin')로 관리자를 확인합니다. */
+    return rpc("admin_delete_order", { p_order_no: no, p_pin: null })
+      .then(function () {
+        emit("orders");
+        return true;
+      })
+      .catch(function (err) {
+        if (rpcMissing(err)) throw upgradeNeeded();
+        throw err;
+      });
+  }
+
   /* ── 관리자: 사진 올리기 (Supabase Storage) ──────────── */
   function readAsDataURL(file) {
     return new Promise(function (resolve, reject) {
@@ -2165,6 +2194,7 @@
     setStock: setStock,
     saveProduct: saveProduct,
     deleteProduct: deleteProduct,
+    deleteOrder: deleteOrder,
     uploadProductImage: uploadProductImage,
     listDepositEvents: listDepositEvents,
     dbColumns: function () { return dbColumns; },

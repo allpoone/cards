@@ -366,22 +366,29 @@
 
   function orderActions(o) {
     var no = esc(o.order_no);
+    /* 실수로 잘못 누르지 않도록 위험한 [취소]는 왼쪽, 주 액션은 오른쪽 끝에 둡니다. */
     if (o.status === "pending_payment") {
       return (
-        '<button class="btn btn--gold btn--xs" type="button" data-act="paid" data-no="' + no + '">입금확인 완료</button>' +
-        '<button class="btn btn--danger btn--xs" type="button" data-act="cancelled" data-no="' + no + '">미입금 취소(재고복구)</button>'
+        '<button class="btn btn--danger btn--xs" type="button" data-act="cancelled" data-no="' + no + '">미입금 취소(재고복구)</button>' +
+        '<button class="btn btn--gold btn--xs aorder__primary" type="button" data-act="paid" data-no="' + no + '">입금확인 완료</button>'
       );
     }
     if (o.status === "paid") {
       return (
-        '<button class="btn btn--ghost btn--xs" type="button" data-act="shipped" data-no="' + no + '">발송완료</button>' +
-        '<button class="btn btn--danger btn--xs" type="button" data-act="cancelled" data-no="' + no + '">주문 취소(재고복구)</button>'
+        '<button class="btn btn--danger btn--xs" type="button" data-act="cancelled" data-no="' + no + '">주문 취소(재고복구)</button>' +
+        '<button class="btn btn--ghost btn--xs aorder__primary" type="button" data-act="shipped" data-no="' + no + '">발송완료</button>'
       );
     }
     if (o.status === "shipped") {
-      return '<span class="aorder__done">발송 처리 완료</span>';
+      return (
+        '<span class="aorder__done">발송 처리 완료</span>' +
+        '<button class="btn btn--danger btn--xs aorder__primary" type="button" data-del-order="' + no + '">삭제</button>'
+      );
     }
-    return '<span class="aorder__done">취소된 주문 — 재고 복구됨</span>';
+    return (
+      '<span class="aorder__done">취소된 주문 — 재고 복구됨</span>' +
+      '<button class="btn btn--danger btn--xs aorder__primary" type="button" data-del-order="' + no + '">삭제</button>'
+    );
   }
 
   function orderCard(o) {
@@ -467,6 +474,26 @@
   }
 
   /* ── 주문 상태 변경 ───────────────────────────────────── */
+  /* 취소·발송완료 주문 삭제 */
+  function askDeleteOrder(orderNo) {
+    var s = window.APOStore;
+    if (!s || !s.deleteOrder) {
+      toast("주문 삭제를 사용할 수 없습니다.", "warn");
+      return;
+    }
+    var ok = window.confirm(
+      orderNo + " 주문을 삭제할까요?\n삭제한 주문은 되돌릴 수 없고, 주문 안의 상품 기록도 함께 사라집니다."
+    );
+    if (!ok) return;
+
+    s.deleteOrder(orderNo).then(function () {
+      toast(orderNo + " 주문을 삭제했습니다.", "ok");
+      return loadOrders();
+    }).catch(function (err) {
+      toast((err && err.message) || "주문을 삭제하지 못했습니다.", "warn");
+    });
+  }
+
   function changeStatus(orderNo, status) {
     var s = window.APOStore;
     if (!s) return;
@@ -1285,6 +1312,11 @@
     });
 
     $("orderList").addEventListener("click", function (e) {
+      var delBtn = e.target.closest("[data-del-order]");
+      if (delBtn) {
+        askDeleteOrder(delBtn.getAttribute("data-del-order"));
+        return;
+      }
       var btn = e.target.closest("[data-act]");
       if (!btn) return;
       changeStatus(btn.getAttribute("data-no"), btn.getAttribute("data-act"));

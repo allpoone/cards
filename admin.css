@@ -181,7 +181,9 @@
 .aorder__info dd { margin: 0; font-size: 0.78rem; color: var(--text-dim); word-break: break-word; }
 .aorder__info a { color: var(--gold-soft); text-decoration: none; }
 .aorder__dep { color: var(--gold-soft); font-weight: 700; }
-.aorder__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.aorder__actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: space-between; }
+/* 위험한 [취소]는 왼쪽, 주 액션([입금확인 완료]/[발송완료])은 오른쪽 끝에 둡니다. */
+.aorder__actions .aorder__primary { margin-left: auto; }
 .aorder__done { font-size: 0.74rem; color: var(--text-faint); }
 
 /* ── 재고 ───────────────────────────────────────────────── */

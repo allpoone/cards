@@ -1226,6 +1226,49 @@ comment on function public.admin_delete_product(text, text) is
 
 
 -- ============================================================
+-- 12-1. 사장님: 주문 삭제 (취소·발송완료 주문만)
+-- ============================================================
+create or replace function public.admin_delete_order(
+  p_order_no text,
+  p_pin      text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_order public.orders;
+begin
+  perform private.assert_admin(p_pin);
+
+  select *
+    into v_order
+    from public.orders
+   where order_no = btrim(p_order_no)
+     for update;
+
+  if not found then
+    raise exception '주문을 찾을 수 없습니다: %', p_order_no
+      using errcode = '22023';
+  end if;
+
+  if v_order.status not in ('cancelled', 'shipped') then
+    raise exception '취소되거나 발송 완료된 주문만 삭제할 수 있습니다.'
+      using errcode = '22023';
+  end if;
+
+  delete from public.orders where id = v_order.id;
+
+  return jsonb_build_object('deleted', true, 'order_no', v_order.order_no);
+end;
+$$;
+
+comment on function public.admin_delete_order(text, text) is
+  '관리자용 주문 삭제. 취소(cancelled)·발송완료(shipped) 주문만 지울 수 있고, order_items 는 on delete cascade 로 함께 지워집니다.';
+
+
+-- ============================================================
 -- 13. 손님: 내 적립금 + 적립/사용 내역
 -- ============================================================
 create or replace function public.my_points(p_limit integer default 30)
@@ -1452,6 +1495,7 @@ grant execute on function public.admin_set_point_rate(numeric, text)     to anon
 grant execute on function public.admin_upsert_product(text, text, text, text, integer, integer, text, text, text, boolean, text, numeric, boolean) to anon, authenticated;
 grant execute on function public.admin_update_product(text, text, integer, integer, text) to anon, authenticated;
 grant execute on function public.admin_delete_product(text, text)          to anon, authenticated;
+grant execute on function public.admin_delete_order(text, text)            to anon, authenticated;
 grant execute on function public.admin_list_member_points(text, integer, text) to anon, authenticated;
 grant execute on function public.admin_adjust_points(uuid, integer, text, text) to anon, authenticated;
 grant execute on function public.check_phone_available(text)             to anon, authenticated;
