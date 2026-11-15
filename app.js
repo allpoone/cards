@@ -307,8 +307,10 @@
 
   /* ── 카드 렌더 ────────────────────────────────────────── */
   function cardMarkup(p, index) {
-    var st = STATUS[p.status] || STATUS.available;
-    var sold = p.status === "soldout";
+    /* DB 에서는 완판 상품 상태가 sold(또는 soldout)로 들어옵니다. */
+    var sold = p.status === "soldout" || p.status === "sold";
+    var statusKey = sold ? "soldout" : p.status;
+    var st = STATUS[statusKey] || STATUS.available;
     var mp = mainPrize(p);
 
     /* 카드 하단은 [장바구니 담기] + [구매하기] 두 개만 — 나머지는 카드/제목을 누르면 상세 모달에서 */
@@ -323,12 +325,14 @@
     var actions = cartBtn + buyBtn;
 
     return (
-      '<article class="card" data-status="' + esc(p.status) + '" data-type="' + esc(p.type) +
+      '<article class="card" data-status="' + esc(statusKey) + '" data-sold="' + (sold ? "true" : "false") +
+      '" data-type="' + esc(p.type) +
       '" data-id="' + esc(p.id) + '" style="animation-delay:' + Math.min(index * 45, 360) + 'ms">' +
       '<div class="card__media">' +
       artMarkup(p) +
       '<span class="type-badge" data-type="' + esc(p.type) + '">' + esc(typeOf(p).label) + "</span>" +
-      '<span class="status-badge" data-status="' + esc(p.status) + '">' + esc(st.label) + "</span>" +
+      '<span class="status-badge" data-status="' + esc(statusKey) + '">' + esc(st.label) + "</span>" +
+      (sold ? '<div class="card__sold" aria-hidden="true"><b>SOLD OUT</b></div>' : "") +
       "</div>" +
       '<div class="card__body">' +
       '<h3 class="card__name">' + esc(p.name) + "</h3>" +
