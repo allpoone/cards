@@ -164,6 +164,11 @@
   }
 
   function syncLock() {
+    /* app.js 의 APONav(상품 상세 · 마이페이지)와 함께 잠금을 맞춥니다. */
+    if (window.APONav && APONav.refreshLock) {
+      APONav.refreshLock();
+      return;
+    }
     document.body.classList.toggle("modal-open", anyOverlay());
   }
 
@@ -183,6 +188,96 @@
       try { lastFocus.focus(); } catch (e) { /* 무시 */ }
     }
   }
+
+  /* ============================================================
+     화면 히스토리 연결 — 휴대폰 뒤로가기 지원 (app.js 의 APONav)
+     마이페이지 · 장바구니 · 주문서 · 주문완료 · 주문조회 · 로그인
+     ============================================================ */
+  var navViews = [];
+
+  function regView(view, isOpen, hide, show) {
+    navViews.push(view);
+    if (window.APONav) APONav.register(view, { isOpen: isOpen, hide: hide, show: show });
+  }
+
+  function wireNav() {
+    if (!window.APONav) return;
+
+    /* 마이페이지 (#mypage) */
+    regView(
+      "mypage",
+      function () { return $("mypageModal") && !$("mypageModal").hidden; },
+      function () {
+        var el = $("mypageModal");
+        if (!el || el.hidden) return;
+        el.hidden = true;
+        stopTicker();
+        APONav.refreshLock();
+      },
+      function (id, st) {
+        openMypage(st && st.tab ? st.tab : "orders");
+      }
+    );
+
+    /* 장바구니 · 주문서 · 주문완료 · 주문조회 · 로그인 — 창 (URL 없음) */
+    regView(
+      "cart",
+      function () { return $("cartDrawer") && !$("cartDrawer").hidden; },
+      function () { var el = $("cartDrawer"); if (el) el.hidden = true; APONav.refreshLock(); },
+      function () { openCart(); }
+    );
+    regView(
+      "checkout",
+      function () { return $("checkoutModal") && !$("checkoutModal").hidden; },
+      function () {
+        var el = $("checkoutModal");
+        if (!el || el.hidden) return;
+        el.hidden = true;
+        APONav.refreshLock();
+        var s2 = store();
+        if (s2 && s2.cart().length) openCart();
+      },
+      function () { openCheckout(); }
+    );
+    regView(
+      "done",
+      function () { return $("doneModal") && !$("doneModal").hidden; },
+      function () { var el = $("doneModal"); if (el) el.hidden = true; APONav.refreshLock(); },
+      function () { /* 주문 완료는 다시 그릴 수 없습니다 — 그냥 닫습니다 */ }
+    );
+    regView(
+      "lookup",
+      function () { return $("lookupModal") && !$("lookupModal").hidden; },
+      function () { var el = $("lookupModal"); if (el) el.hidden = true; APONav.refreshLock(); },
+      function () { openLookup(); }
+    );
+    regView(
+      "auth",
+      function () { return $("authModal") && !$("authModal").hidden; },
+      function () { authNext = ""; var el = $("authModal"); if (el) el.hidden = true; APONav.refreshLock(); },
+      function () { openAuth("login", {}); }
+    );
+  }
+
+  /* 열기 · 닫기 + 히스토리 한 칸 */
+  function navOpen(view) {
+    if (window.APONav) APONav.show(view);
+  }
+
+  /* 흐름이 끝난 화면(주문 완료) — 이전 기록을 지우고 새 칸으로 */
+  function navFresh(view) {
+    if (window.APONav) APONav.show(view, "", "fresh");
+  }
+
+  function navClose(view) {
+    if (window.APONav) APONav.close(view);
+    else {
+      /* APONav 가 없으면(예전 캐시) 예전처럼 그냥 닫습니다 */
+      var map = { cart: "cartDrawer", checkout: "checkoutModal", done: "doneModal", lookup: "lookupModal", auth: "authModal", mypage: "mypageModal" };
+      closeEl($(map[view]));
+    }
+  }
+
 
   /* ── 장바구니 ─────────────────────────────────────────── */
   function artStyle(p) {
@@ -290,13 +385,16 @@
 
   function openCart() {
     renderCart();
-    openEl($("cartDrawer"));
-    var closeBtn = $("cartDrawer") && $("cartDrawer").querySelector("[data-close-cart]");
+    var el = $("cartDrawer");
+    var wasHidden = el && el.hidden;
+    openEl(el);
+    if (wasHidden) navOpen("cart");
+    var closeBtn = el && el.querySelector("[data-close-cart]");
     if (closeBtn) closeBtn.focus();
   }
 
   function closeCart() {
-    closeEl($("cartDrawer"));
+    navClose("cart");
   }
 
   function stepCart(id, delta) {
@@ -651,8 +749,10 @@
       });
     }
 
-    closeEl($("cartDrawer"));
+    /* 장바구니 드로어는 그대로 두고(가려질 뿐) 주문서로 넘어갑니다 —
+       폰 뒤로가기로 주문서에서 장바구니로 자연스럽게 돌아옵니다. */
     openEl($("checkoutModal"));
+    navOpen("checkout");
 
     /* 적립금 사용칸 */
     var useInput = $("coUsePoints");
@@ -952,6 +1052,7 @@
 
     if (!s) return;
     openEl($("doneModal"));
+    navFresh("done");
     startTicker();
     var ok = $("doneModal").querySelector("[data-close-done]");
     if (ok) ok.focus();
@@ -1012,6 +1113,7 @@
 
     $("lookupForm").addEventListener("submit", runLookup);
     openEl($("lookupModal"));
+    navOpen("lookup");
     startTicker();
 
     if (user) {
@@ -1421,6 +1523,7 @@
       authNext = "";
       renderAuth();
       openEl($("authModal"));
+      navOpen("auth");
       return;
     }
     authMode = mode === "signup" ? "signup" : "login";
@@ -1428,6 +1531,7 @@
     authNext = opts.next || "";
     renderAuth();
     openEl($("authModal"));
+    navOpen("auth");
   }
 
   function setAuthMode(mode) {
@@ -1473,7 +1577,7 @@
     }
 
     var user = (res && res.user) || currentUser();
-    closeEl($("authModal"));
+    navClose("auth");
     toast((userLabel(user) || "회원") + "님 " + (isSignup ? "환영합니다!" : "로그인했습니다."), "ok");
 
     if (authNext === "checkout") openCheckout();
@@ -1575,7 +1679,7 @@
     if (!s) return;
     s.signOutUser().then(function () {
       renderAccount();
-      closeEl($("authModal"));
+      navClose("auth");
       if ($("mypageModal") && !$("mypageModal").hidden) {
         mypageTab = "orders";
         renderMypage();
@@ -1722,6 +1826,8 @@
     var body = $("mypageBody");
     if (!body) return;
     var user = currentUser();
+    var head = $("mypagePageTitle");
+    if (head) head.textContent = user ? userLabel(user) + "님" : "마이페이지";
 
     if (!user) {
       body.innerHTML = mypageGuestMarkup();
@@ -1780,14 +1886,22 @@
   }
 
   function openMypage(tab) {
+    var el = $("mypageModal");
+    var wasHidden = el && el.hidden;
     mypageTab = mypageTabKey(tab);
     mpLookupMode = "no";
     mpLastQuery = null;
     mpOrders = null;
     mpOrderFilter = "all";
     renderMypage();
-    openEl($("mypageModal"));
+    openEl(el);
+    if (wasHidden) {
+      var mb = $("mypageBody");
+      if (mb) mb.scrollTop = 0;
+    }
     startTicker();
+    if (wasHidden) navOpen("mypage");
+    else if (window.APONav) APONav.relabel("mypage", { tab: mypageTab });
     if (!currentUser()) {
       var input = $("mpLookupNo");
       if (input) setTimeout(function () { try { input.focus(); } catch (e) {} }, 80);
@@ -2157,7 +2271,7 @@
       }
       if (t.closest("[data-close-mypage]")) {
         e.preventDefault();
-        closeEl($("mypageModal"));
+        navClose("mypage");
         return;
       }
       if (t.closest("[data-mypage-logout]")) {
@@ -2191,7 +2305,7 @@
         e.preventDefault();
         var wasNext = authNext;
         authNext = "";
-        closeEl($("authModal"));
+        navClose("auth");
         if (wasNext === "checkout") openCheckout();
         return;
       }
@@ -2269,21 +2383,19 @@
 
     $("checkoutModal").addEventListener("click", function (e) {
       if (!e.target.closest("[data-close-checkout]")) return;
-      closeEl($("checkoutModal"));
-      /* 주문서를 닫으면 장바구니로 돌아가기 */
-      var s2 = store();
-      if (s2 && s2.cart().length) openCart();
+      /* 닫으면 장바구니로 돌아가기 — checkout 화면의 hide 에서 처리합니다 */
+      navClose("checkout");
     });
     $("doneModal").addEventListener("click", function (e) {
-      if (e.target.closest("[data-close-done]")) closeEl($("doneModal"));
+      if (e.target.closest("[data-close-done]")) navClose("done");
     });
     $("lookupModal").addEventListener("click", function (e) {
-      if (e.target.closest("[data-close-lookup]")) closeEl($("lookupModal"));
+      if (e.target.closest("[data-close-lookup]")) navClose("lookup");
     });
     $("authModal").addEventListener("click", function (e) {
       if (e.target.closest("[data-close-auth]")) {
         authNext = "";
-        closeEl($("authModal"));
+        navClose("auth");
       }
     });
     $("authModal").addEventListener("submit", submitAuth);
@@ -2317,17 +2429,12 @@
 
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
-      if (!$("authModal").hidden) { authNext = ""; closeEl($("authModal")); return; }
-      if (!$("mypageModal").hidden) { closeEl($("mypageModal")); return; }
-      if (!$("checkoutModal").hidden) {
-        closeEl($("checkoutModal"));
-        var s3 = store();
-        if (s3 && s3.cart().length) openCart();
-        return;
-      }
-      if (!$("doneModal").hidden) { closeEl($("doneModal")); return; }
-      if (!$("lookupModal").hidden) { closeEl($("lookupModal")); return; }
-      if (!$("cartDrawer").hidden) { closeEl($("cartDrawer")); return; }
+      if (!$("authModal").hidden) { authNext = ""; navClose("auth"); return; }
+      if (!$("mypageModal").hidden) { navClose("mypage"); return; }
+      if (!$("checkoutModal").hidden) { navClose("checkout"); return; }
+      if (!$("doneModal").hidden) { navClose("done"); return; }
+      if (!$("lookupModal").hidden) { navClose("lookup"); return; }
+      if (!$("cartDrawer").hidden) { closeCart(); return; }
     });
 
     window.addEventListener("apo:cart", renderCart);
@@ -2372,6 +2479,14 @@
       renderAccount();
       renderCart();
       wire();
+      wireNav();
+
+      /* 공유 링크(#mypage)로 바로 열기 */
+      if (window.APONav && location.hash === "#mypage") {
+        APONav.seed("mypage", "");
+        openMypage("orders");
+      }
+
       /* 이미 로그인된 세션이 있으면 헤더에 계정을 바로 표시 */
       if (s.loadSession) {
         s.loadSession().then(

@@ -150,6 +150,146 @@
   var $ = function (id) { return document.getElementById(id); };
   var grid, emptyState, searchInput, searchClear, resultCount, lastFocused = null;
 
+  /* ============================================================
+     화면 히스토리 — 휴대폰 뒤로가기 지원
+     상품 상세(#product=ID) · 마이페이지(#mypage)는 전체 화면 페이지,
+     장바구니 · 주문서 · 로그인 · 주문완료 · 주문조회는 창입니다.
+     뒤로가기를 누르면 사이트 밖으로 나가지 않고 지금 열린 화면만 닫힙니다.
+     shop.js 도 window.APONav 를 함께 사용합니다.
+     ============================================================ */
+  var Nav = (function () {
+    var baseUrl = location.pathname + location.search;
+    var regs = {};
+
+    function ours(st) { return !!(st && st.apo === 1 && st.view); }
+    function current() { return ours(history.state) ? history.state : null; }
+
+    function hashFor(view, id) {
+      if (view === "product") return "#product=" + encodeURIComponent(id || "");
+      return "#" + view;
+    }
+
+    function save(mode, view, id, extra) {
+      var st = { apo: 1, view: view };
+      var k;
+      if (id) st.id = id;
+      if (extra) {
+        for (k in extra) {
+          if (Object.prototype.hasOwnProperty.call(extra, k)) st[k] = extra[k];
+        }
+      }
+      try {
+        if (mode === "replace") history.replaceState(st, "", hashFor(view, id));
+        else history.pushState(st, "", hashFor(view, id));
+      } catch (e) { /* 히스토리를 쓸 수 없는 환경 — 화면만 동작합니다. */ }
+    }
+
+    function reset() {
+      try { history.replaceState(null, "", baseUrl); } catch (e) { /* 무시 */ }
+    }
+
+    function register(view, handlers) {
+      if (view && handlers) regs[view] = handlers;
+    }
+
+    function isOpen(view) {
+      return !!(regs[view] && regs[view].isOpen && regs[view].isOpen());
+    }
+
+    function hide(view) {
+      if (regs[view] && regs[view].hide) regs[view].hide();
+    }
+
+    function refreshLock() {
+      var any = false, v;
+      for (v in regs) {
+        if (Object.prototype.hasOwnProperty.call(regs, v) && isOpen(v)) any = true;
+      }
+      if (document.body && document.body.classList) {
+        document.body.classList.toggle("modal-open", any);
+      }
+    }
+
+    /* 화면 열기
+       mode: "push"(기본 — 한 칸 추가) · "replace"(지금 칸을 갈아끼움)
+             · "fresh"(처음으로 되돌리고 새 칸 — 주문 완료처럼 흐름이 끝난 화면) */
+    function show(view, id, mode) {
+      if (!view) return;
+      if (mode === "fresh") { reset(); save("push", view, id); return; }
+      if (mode === "replace") { save("replace", view, id); return; }
+      var st = current();
+      if (!st) { save("push", view, id); return; }
+      if (st.view === view && String(st.id || "") === String(id || "")) {
+        save("replace", view, id, st.base ? { base: true } : null);
+        return;
+      }
+      /* 지금 칸의 창이 이미 닫혀 있으면 다음 화면으로 갈아끼우는 중입니다. */
+      if (st.view !== view && !isOpen(st.view)) { save("replace", view, id); return; }
+      save("push", view, id);
+    }
+
+    /* 지금 칸의 이름표만 바꿉니다 (마이페이지 탭 전환 등) — 히스토리는 늘지 않습니다. */
+    function relabel(view, extra) {
+      var st = current();
+      if (!st || st.view !== view) return;
+      var next = { apo: 1, view: view }, k;
+      if (st.id) next.id = st.id;
+      if (st.base) next.base = true;
+      if (extra) {
+        for (k in extra) {
+          if (Object.prototype.hasOwnProperty.call(extra, k)) next[k] = extra[k];
+        }
+      }
+      try { history.replaceState(next, "", location.hash || hashFor(view, st.id)); } catch (e) { /* 무시 */ }
+    }
+
+    /* 사용자가 화면을 닫을 때 — 화면을 먼저 숨기고 지금 칸을 깨끗한 메인으로 되돌립니다.
+       (history.back 을 쓰지 않아 뒤이어 열리는 다른 화면과 겹치지 않습니다.
+        폰 뒤로가기는 popstate → apply 로 처리됩니다.) */
+    function close(view) {
+      var st = current();
+      hide(view);
+      if (st && st.view === view) reset();
+    }
+
+    /* 공유 링크(#product=…, #mypage)로 바로 들어왔을 때의 첫 칸 */
+    function seed(view, id) {
+      try {
+        history.replaceState({ apo: 1, view: view, id: id || "", base: true }, "", hashFor(view, id));
+      } catch (e) { /* 무시 */ }
+    }
+
+    /* 지금 히스토리에 맞춰 모든 화면을 다시 맞춥니다 */
+    function apply(st) {
+      var view = (st && st.view) || "", v;
+      for (v in regs) {
+        if (!Object.prototype.hasOwnProperty.call(regs, v)) continue;
+        if (v === view) {
+          if (!isOpen(v)) regs[v].show((st && st.id) || "", st || {});
+        } else if (isOpen(v)) {
+          regs[v].hide();
+        }
+      }
+      refreshLock();
+    }
+
+    window.addEventListener("popstate", function () { apply(current()); });
+
+    return {
+      register: register,
+      show: show,
+      close: close,
+      relabel: relabel,
+      seed: seed,
+      apply: apply,
+      hide: hide,
+      isOpen: isOpen,
+      refreshLock: refreshLock,
+      current: current,
+    };
+  })();
+  window.APONav = Nav;
+
   /* ── 유틸 ─────────────────────────────────────────────── */
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -738,17 +878,26 @@
     return seat.picked.slice().sort(function (a, b) { return a - b; });
   }
 
-  function openModal(p) {
+  function openModal(p, silent) {
     var modal = $("detailModal");
+    if (!modal) return;
     resetSeat();
     modalId = p.id;
-    $("modalBody").innerHTML = detailMarkup(p);
+    var body = $("modalBody");
+    body.innerHTML = detailMarkup(p);
+    var wasHidden = modal.hidden;
     modal.hidden = false;
-    document.body.classList.add("modal-open");
-    lastFocused = document.activeElement;
-    var closeBtn = modal.querySelector(".modal__close");
-    if (closeBtn) closeBtn.focus();
-    if (history.replaceState) history.replaceState(null, "", "#" + p.id);
+    body.scrollTop = 0;
+    if (wasHidden) lastFocused = document.activeElement;
+    var headTitle = $("detailPageTitle");
+    if (headTitle) headTitle.textContent = p.name;
+    document.title = p.name + " · " + ((SITE_CONFIG && SITE_CONFIG.shopName) || "ALL PO ONE");
+    Nav.refreshLock();
+    if (wasHidden) {
+      var backBtn = modal.querySelector(".pagehead__back") || modal.querySelector(".modal__close");
+      if (backBtn) { try { backBtn.focus({ preventScroll: true }); } catch (e) { try { backBtn.focus(); } catch (e2) {} } }
+    }
+    if (!silent) Nav.show("product", p.id);
 
     /* 오리파: 1~N번 번호 상태를 불러와 번호 선택판을 채웁니다. */
     if (p.type === "oripa" && window.APOStore && APOStore.getOripaBoard) {
@@ -760,16 +909,28 @@
     }
   }
 
-  function closeModal() {
+  /* 화면만 숨기기 (히스토리는 손대지 않음 — 다음 화면으로 갈아끼울 때) */
+  function hideDetail() {
     var modal = $("detailModal");
-    if (modal.hidden) return;
+    if (!modal || modal.hidden) return;
     modal.hidden = true;
     $("modalBody").innerHTML = "";
-    document.body.classList.remove("modal-open");
     resetSeat();
     modalId = "";
-    if (history.replaceState) history.replaceState(null, "", location.pathname + location.search);
-    if (lastFocused && lastFocused.focus) lastFocused.focus();
+    var c = SITE_CONFIG || {};
+    document.title = (c.shopName || "ALL PO ONE") + (c.tagline ? " — " + c.tagline : "");
+    Nav.refreshLock();
+    if (lastFocused && lastFocused.focus) {
+      try { lastFocused.focus({ preventScroll: true }); } catch (e) { /* 무시 */ }
+    }
+    lastFocused = null;
+  }
+
+  /* 사용자가 닫기 — 뒤로가기 한 칸으로 정리 */
+  function closeModal() {
+    var modal = $("detailModal");
+    if (!modal || modal.hidden) return;
+    Nav.close("product");
   }
 
   function findProduct(id) {
@@ -1108,9 +1269,30 @@
       render();
       wire();
 
-      if (location.hash && location.hash.length > 1) {
-        var p = findProduct(location.hash.slice(1));
-        if (p) setTimeout(function () { openModal(p); }, 120);
+      /* 히스토리 등록 — 상품 상세는 app.js 가 담당 */
+      Nav.register("product", {
+        isOpen: function () { var m = $("detailModal"); return !!m && !m.hidden; },
+        show: function (id) {
+          var p = findProduct(id);
+          if (p) openModal(p, true);
+        },
+        hide: hideDetail,
+      });
+
+      /* 공유 링크로 바로 열기 — #product=… (옛 링크 #상품ID 도 지원) */
+      var mh = location.hash.match(/^#product=([^&]+)$/);
+      var pid = "";
+      if (mh) {
+        pid = decodeURIComponent(mh[1]);
+      } else {
+        var legacy = location.hash.replace(/^#/, "");
+        if (legacy && !/^(mypage|top|products|guide)$/.test(legacy) && findProduct(legacy)) pid = legacy;
+      }
+      if (pid) {
+        var p0 = findProduct(pid);
+        Nav.seed("product", pid);
+        if (p0) setTimeout(function () { openModal(p0, true); }, 120);
+        else history.replaceState(null, "", location.pathname + location.search);
       }
     });
 
@@ -1125,7 +1307,7 @@
     window.APO = {
       render: function () { updateStats(); buildChips(); render(); },
       toast: toast,
-      openDetail: openModal,
+      openDetail: function (p) { openModal(p, false); },
       closeDetail: closeModal,
       productList: productList,
       unitWord: unitWord,
