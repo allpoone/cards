@@ -741,18 +741,16 @@
       '<h3 class="seat__title">번호 선택</h3>' +
       '<p class="seat__meta" data-seat-meta>불러오는 중…</p>' +
       "</div>" +
-      /* 전체 선택 · 전체 해제 — 번호판이 채워진 뒤에만 나옵니다. */
+      '<p class="seat__loading" data-seat-loading>번호를 불러오는 중…</p>' +
+      '<div class="seat__grid" data-seat-grid hidden></div>' +
+      /* 번호판 바로 아래 — 50개씩 넘겨 보기(51구 이상일 때만) + 전체 선택 · 전체 해제 */
+      '<div class="seat__pager" data-seat-pager hidden></div>' +
       '<div class="seat__tools">' +
       '<button class="seat__all" type="button" data-seat-all hidden disabled>전체 선택</button>' +
       "</div>" +
-      /* 50개씩 넘겨 보기 — 총 구수가 51구 이상일 때만 채웁니다. */
-      '<div class="seat__pager" data-seat-pager hidden></div>' +
-      '<p class="seat__loading" data-seat-loading>번호를 불러오는 중…</p>' +
-      '<div class="seat__grid" data-seat-grid hidden></div>' +
       '<ul class="seat__legend" data-seat-legend hidden>' +
       '<li><span class="seat__dot seat__dot--on"></span>선택 가능</li>' +
       '<li><span class="seat__dot seat__dot--picked"></span>내가 선택</li>' +
-      '<li><span class="seat__dot seat__dot--cart"></span>장바구니</li>' +
       '<li><span class="seat__dot seat__dot--off"></span>팔림</li>' +
       '<li><span class="seat__dot seat__dot--off seat__dot--lock"></span>입금대기</li>' +
       "</ul>" +
