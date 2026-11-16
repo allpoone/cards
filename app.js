@@ -763,11 +763,11 @@
 
   /* ── 번호 선택 상태 ───────────────────────────────────── */
   var SEAT_PAGE_SIZE = 50;   /* 한 페이지에 보여줄 번호 개수 */
-  var seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false, inCart: {} };
+  var seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false, inCart: {}, sync: false };
   var modalId = "";
 
   function resetSeat() {
-    seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false, inCart: {} };
+    seat = { id: "", total: 0, price: 0, status: {}, picked: [], page: 0, open: false, inCart: {}, sync: false };
   }
 
   /* 장바구니에 담아둔 이 상품의 번호 (서버 상태와 별개로 이 브라우저의 장바구니 기준) */
@@ -787,12 +787,38 @@
     return map;
   }
 
+  /* 번호 맵에 담긴 번호가 하나라도 있는지 */
+  function hasCartSeats(map) {
+    for (var k in map) if (map[k]) return true;
+    return false;
+  }
+
   /* 장바구니가 바뀌면(추가·삭제·주문 완료 자동 정리) 열려 있는 번호판에 즉시 반영 */
   function refreshCartSeats() {
     if (!seat.open || !seat.id) return;
     seat.inCart = cartSeatMap(seat.id);
+    /* 장바구니에 이 상품 번호가 담긴 순간부터는 번호판 클릭이 장바구니에 바로 반영됩니다. */
+    if (hasCartSeats(seat.inCart)) seat.sync = true;
     paintSeatGrid();
     paintSeatSum();
+  }
+
+  /* ── 실시간 자동 동기화 ────────────────────────────────
+     autoSync(seat.sync)가 켜져 있으면 번호를 고르고 푸는 즉시 장바구니를 그 상태로 맞춥니다.
+     (장바구니에 이 상품을 한 번이라도 담은 상세 화면에서만 켜지고, 이 화면을 닫기 전까지
+      0개가 되어도 꺼지지 않습니다. 그래야 마지막 번호까지 뺐다가 다시 누르면 또 담깁니다.) */
+  function seatSyncCart(before) {
+    if (!seat.sync || !seat.id) return true;
+    if (!window.APOStore || !APOStore.setOripaCartSeats) return false;
+    var res = APOStore.setOripaCartSeats(seat.id, seat.picked.slice());
+    seat.inCart = cartSeatMap(seat.id);
+    if (!res.ok && res.reason !== "empty") {
+      /* 재고·판매 상태가 바뀌어 장바구니에 못 넣었으면 화면도 원래대로 되돌립니다. */
+      if (before) seat.picked = before.slice();
+      toast(res.message, "warn");
+      return false;
+    }
+    return true;
   }
 
   function seatCounts() {
@@ -985,8 +1011,7 @@
     box.hidden = false;
 
     /* 장바구니에 이 상품이 담겨 있는지 — 담겨 있으면 0구여도 빼기로 눌러 줄 수 있게 둡니다. */
-    var inCart = false;
-    for (var ck in seat.inCart) if (seat.inCart[ck]) { inCart = true; break; }
+    var inCart = hasCartSeats(seat.inCart);
 
     var counts = seatCounts();
     var meta = document.querySelector("[data-seat-meta]");
@@ -1045,12 +1070,15 @@
       page: 0,
       open: true,
       inCart: cartSeatMap(p.id),
+      sync: false,
     };
     (board.seats || []).forEach(function (x) {
       if (x && x.n) seat.status[x.n] = x.s || "available";
     });
     /* 장바구니에 담아둔 번호는 열자마자 선택된 상태로 — 상세를 다시 열어도 금액이 바로 뜨게. */
     seat.picked = seatInitialPicks();
+    /* 장바구니에 이 상품 번호가 1개 이상 들어 있으면 이 화면은 실시간 동기화 모드로 시작합니다. */
+    seat.sync = hasCartSeats(seat.inCart);
     if (loading) loading.hidden = true;
     if (stepper) stepper.hidden = true;
     var note = document.querySelector("[data-seat-buy-note]");
@@ -1261,12 +1289,20 @@
         if (allBtn.disabled) return;
         var targets = seatAllTargets();
         if (!targets.length) return;
+        var allBefore = seat.picked.slice();
+        var allToast = "";
         if (seatAllIsOn(targets)) {
           seat.picked = [];
-          toast("선택을 모두 해제했습니다.", "ok");
+          allToast = "선택을 모두 해제했습니다.";
         } else {
           seat.picked = targets.slice();
-          toast(targets.length + "구를 모두 선택했습니다.", "ok");
+          allToast = targets.length + "구를 모두 선택했습니다.";
+        }
+        /* 장바구니에 담아둔 오리파면 전체 선택·전체 해제도 장바구니에 바로 반영 (토스트는 한 번만) */
+        if (seat.sync) {
+          if (seatSyncCart(allBefore)) toast(allToast, "ok");
+        } else {
+          toast(allToast, "ok");
         }
         paintSeatGrid();
         paintSeatSum();
@@ -1279,6 +1315,7 @@
         if (seatBtn.disabled) return;
         var num = Number(seatBtn.getAttribute("data-seat-num"));
         var at = seat.picked.indexOf(num);
+        var pickBefore = seat.sync ? seat.picked.slice() : null;
         if (at >= 0) {
           seat.picked.splice(at, 1);
         } else {
@@ -1288,6 +1325,14 @@
             return;
           }
           seat.picked.push(num);
+        }
+        /* 장바구니에 담아둔 오리파 — 클릭 즉시 장바구니·헤더 뱃지까지 조용히 반영하고,
+           해제한 번호는 청록(장바구니) 잔상 없이 바로 '선택 가능'으로 돌아갑니다. */
+        if (seat.sync) {
+          seatSyncCart(pickBefore);
+          paintSeatGrid();
+          paintSeatSum();
+          return;
         }
         var on = seat.picked.indexOf(num) >= 0;
         seatBtn.classList.toggle("is-picked", on);
@@ -1343,6 +1388,8 @@
             : { ok: false, message: "장바구니를 사용할 수 없습니다." };
           toast(sync.message, sync.ok ? "ok" : "warn");
           if (!sync.ok) return;
+          /* 이 상세 화면에서는 이제부터 번호 클릭이 장바구니에 바로 반영됩니다. */
+          seat.sync = true;
           closeModal();
           if (window.APOShop) APOShop.openCart();
           return;
