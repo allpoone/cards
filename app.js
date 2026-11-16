@@ -1006,7 +1006,7 @@
     if (buyBtn) buyBtn.disabled = picked.length === 0;
     if (cartBtn) {
       cartBtn.disabled = picked.length === 0 && !inCart;
-      cartBtn.textContent = picked.length ? "장바구니 담기" : "장바구니에서 빼기";
+      cartBtn.textContent = picked.length === 0 && inCart ? "장바구니에서 빼기" : "장바구니 담기";
     }
   }
 
