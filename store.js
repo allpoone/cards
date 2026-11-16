@@ -2309,18 +2309,20 @@
     var input = info || {};
     var data = {};
     if (input.name !== undefined) data.name = String(input.name || "").trim();
-    /* 휴대폰 번호는 회원이 직접 바꿀 수 없습니다 — 새 번호가 오면 무시합니다.
-       (최초 1회 등록은 saveMyProfile 이 담당합니다) */
+    /* 번호는 등록 후에는 바꿀 수 없습니다(서버 update_my_profile 이 막습니다).
+       아직 번호가 없는 회원(카카오 첫 로그인 등)이 처음 등록할 때만 전달됩니다. */
+    var phoneInput = input.phone !== undefined ? digits(input.phone) : "";
+    if (phoneInput) data.phone = phoneInput;
     var pw = input.password ? String(input.password) : "";
 
     var payload = { data: data };
     if (pw) payload.password = pw;
 
     var applyDb = function () {
-      if (data.name === undefined && !pw) return Promise.resolve(null);
+      if (data.name === undefined && !phoneInput && !pw) return Promise.resolve(null);
       return rpc("update_my_profile", {
         p_name: data.name !== undefined ? data.name : null,
-        p_phone: null,
+        p_phone: phoneInput || null,
       }).catch(function () { return null; });
     };
 

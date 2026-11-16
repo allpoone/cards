@@ -644,6 +644,16 @@
     var total = s.checkoutTotal ? s.checkoutTotal() : s.cartTotal();
     var saved = savedBuyer();
     var meta = user && s.userMeta ? s.userMeta() : {};
+
+    /* 회원인데 이름·휴대폰이 비어 있으면(카카오 첫 로그인) 주문 전에 입력을 먼저 받습니다. */
+    if (user && (!metaName(meta) || !digits(meta.phone))) {
+      closeEl($("cartDrawer"));
+      authNext = "checkout";
+      if ($("profileModal") && $("profileModal").hidden) openProfileCompletion(true);
+      else profileGate = true;
+      toast("주문 전에 이름과 휴대폰 번호를 먼저 등록해 주세요.", "warn");
+      return;
+    }
     var ship = (meta && meta.shipping) || {};
     /* 로그인 회원은 계정에 저장된 정보 → 없으면 이 브라우저에 저장된 정보 */
     var buyer = {
@@ -1330,16 +1340,30 @@
     var id = memberId(user);
     if (id) return id;
     var meta = user.user_metadata || {};
-    if (meta.name) return String(meta.name);
+    var nm = metaName(meta);
+    if (nm) return nm;
     var mail = String(user.email || "");
-    return mail ? mail.split("@")[0] : "";
+    return mail ? mail.split("@")[0] : "회원";
+  }
+
+  /* 카카오처럼 이메일이 없는 계정인지 (이메일·비밀번호 로그인 수단이 없음) */
+  function hasEmailLogin(user) {
+    var ident = (user && user.identities) || [];
+    var i;
+    for (i = 0; i < ident.length; i++) {
+      if (ident[i] && ident[i].provider === "email") return true;
+    }
+    if (ident.length) return false;
+    return !!String((user && user.email) || "");
   }
 
   /* 계정 줄에 보여줄 로그인 정보 — 손님은 아이디, 사장님은 이메일 */
   function userContact(user) {
     if (!user) return "";
     var id = memberId(user);
-    return id ? "아이디 " + id : String(user.email || "");
+    if (id) return "아이디 " + id;
+    var mail = String(user.email || "");
+    return mail || "카카오 로그인 계정";
   }
 
   /* 헤더: 로그인 전에는 [로그인], 로그인 후에는 아이디 + 보유 적립금 + [내 주문] + [로그아웃] */
@@ -1761,6 +1785,23 @@
   }
 
   var profileSaving = false;
+  var profileGate = false;   /* 강제 입력 중 — 닫기·배경클릭·Esc 로는 빠져나올 수 없습니다 */
+
+  function profileIncomplete(p) {
+    if (!p) return false;
+    return !String(p.name || "").trim() || !digits(p.phone);
+  }
+
+  /* 카카오 등에서 넘어온 이름 후보 (없으면 빈 값) */
+  function metaName(meta) {
+    var m = meta || {};
+    var candidates = [m.name, m.full_name, m.nickname, m.preferred_username, m.user_name];
+    for (var i = 0; i < candidates.length; i++) {
+      var v = String(candidates[i] == null ? "" : candidates[i]).trim();
+      if (v) return v;
+    }
+    return "";
+  }
 
   function profileError(msg) {
     var box = $("profileError");
@@ -1781,23 +1822,30 @@
     }
   }
 
-  function openProfileCompletion() {
+  function openProfileCompletion(force, p) {
     var s = authSdk();
     var user = currentUser();
     if (!s || !user) return;
     var meta = user.user_metadata || {};
-    var name = String(meta.name || "");
-    var phone = digits(meta.phone);
+    var name = metaName(meta) || String((p && p.name) || "").trim();
+    var phone = digits(meta.phone) || digits(p && p.phone);
+
+    profileGate = force !== false;   /* 기본값: 강제 모드 */
 
     $("profileBody").innerHTML =
       '<div class="auth">' +
       '<p class="auth__eyebrow">PROFILE</p>' +
-      '<h2 class="auth__title" id="profileTitle">프로필 완성</h2>' +
-      '<p class="auth__lede">쇼핑몰 이용에 필요한 <b>이름</b>과 <b>휴대폰 번호</b>를 한 번만 등록해 주세요.\n등록한 번호는 주문서에 자동으로 채워지고, 이후에는 직접 바꿀 수 없습니다 (번호 변경은 오픈톡으로 문의해 주세요).</p>' +
+      '<h2 class="auth__title" id="profileTitle">가입 정보 입력</h2>' +
+      '<p class="auth__lede">' +
+      (profileGate
+        ? '쇼핑몰을 이용하려면 <b>이름</b>과 <b>휴대폰 번호</b>를 꼭 입력해야 합니다.\n입력하지 않고는 주문·마이페이지를 쓸 수 없습니다.'
+        : '쇼핑몰 이용에 필요한 <b>이름</b>과 <b>휴대폰 번호</b>를 한 번만 등록해 주세요.') +
+      '\n등록한 번호는 주문서에 자동으로 채워지고, 이후에는 직접 바꿀 수 없습니다 (번호 변경은 오픈톡으로 문의해 주세요).</p>' +
       '<form id="profileForm" class="auth__form" novalidate>' +
       '<div class="field">' +
       '<label for="profileName">이름 <span class="req">*</span></label>' +
       '<input id="profileName" type="text" autocomplete="name" maxlength="30" placeholder="홍길동" value="' + esc(name) + '" />' +
+      '<p class="field__err" id="profileNameErr" hidden></p>' +
       "</div>" +
       '<div class="field">' +
       '<label for="profilePhone">휴대폰 번호 <span class="req">*</span></label>' +
@@ -1805,17 +1853,27 @@
       '<p class="field__err" id="profilePhoneErr" hidden></p>' +
       "</div>" +
       '<p class="auth__error" id="profileError" role="alert" hidden></p>' +
-      '<button class="btn btn--gold btn--block" type="submit" id="profileSave">등록하고 계속하기</button>' +
+      '<button class="btn btn--gold btn--block" type="submit" id="profileSave">가입 완료</button>' +
       '<button class="btn btn--text btn--block" type="button" data-auth-logout>다른 계정으로 로그인</button>' +
       "</form>" +
       "</div>";
 
+    /* 강제 모드에서는 닫기(X) 단추를 숨깁니다. */
+    var closeBtn = document.querySelector('#profileModal .modal__close');
+    if (closeBtn) closeBtn.style.display = profileGate ? "none" : "";
+
     openEl($("profileModal"));
-    var first = $("profileName");
+    var first = $(name ? "profilePhone" : "profileName");
     if (first) setTimeout(function () { try { first.focus(); } catch (e) {} }, 80);
   }
 
   function closeProfileCompletion() {
+    if (profileGate) {
+      toast("이름과 휴대폰 번호를 입력해야 계속할 수 있습니다.", "warn");
+      return;
+    }
+    var closeBtn = document.querySelector('#profileModal .modal__close');
+    if (closeBtn) closeBtn.style.display = "";
     closeEl($("profileModal"));
   }
 
@@ -1830,6 +1888,8 @@
     profileError("");
 
     if (!name) {
+      var nameErr = $("profileNameErr");
+      if (nameErr) { nameErr.textContent = "이름을 입력해 주세요."; nameErr.hidden = false; }
       profileError("이름을 입력해 주세요.");
       if ($("profileName")) $("profileName").focus();
       return;
@@ -1861,9 +1921,15 @@
       .then(function (res) {
         if (!res) return;
         profileBusy(false);
-        closeProfileCompletion();
+        profileGate = false;
+        var closeBtn = document.querySelector('#profileModal .modal__close');
+        if (closeBtn) closeBtn.style.display = "";
+        closeEl($("profileModal"));
         renderAccount();
-        toast("프로필을 등록했습니다. 쇼핑을 시작해 보세요!", "ok");
+        toast("가입 정보를 등록했습니다. 쇼핑을 시작해 보세요!", "ok");
+        /* 헤더·마이페이지 이름/번호를 즉시 새 값으로 */
+        if (authSdk() && authSdk().myProfile) authSdk().myProfile(true).catch(function () {});
+        if (!$("mypageModal").hidden) renderMypage();
         if (authNext === "checkout") { openCheckout(); authNext = ""; }
       })
       .catch(function (err) {
@@ -1872,7 +1938,7 @@
       });
   }
 
-  /* 로그인 직후: 이름·번호가 비었으면 프로필 완성 모달을 엽니다.
+  /* 로그인 직후: 이름·번호가 비었으면 프로필 입력을 강제로 엽니다.
      차단된 카카오 계정이면 즉시 로그아웃 + 안내합니다. */
   function checkProfileCompletion() {
     var s = authSdk();
@@ -1881,19 +1947,42 @@
     if (s.isAdminUser && s.isAdminUser(user)) return Promise.resolve();
     return s.myProfile(true)
       .then(function (p) {
-        if (!currentUser()) return;
+        var now = currentUser();
+        if (!now) return;
         if (p && p.blocked) {
+          profileGate = false;
           s.signOutUser().then(function () {
             renderAccount();
+            var el = $("profileModal");
+            if (el) el.hidden = true;
             toast(p.block_reason || "이용이 제한된 카카오 계정입니다. 오픈톡으로 문의해 주세요.", "warn");
           });
           return;
         }
-        if (p && p.needs_phone && $("profileModal") && $("profileModal").hidden) {
-          openProfileCompletion();
+
+        /* DB 프로필이 없으면(패치 전·오류) 카카오 메타데이터로 판단합니다. */
+        var meta = now.user_metadata || {};
+        var need = p
+          ? profileIncomplete(p)
+          : (!metaName(meta) || !digits(meta.phone));
+
+        if (need) {
+          var el2 = $("profileModal");
+          if (!el2 || el2.hidden) openProfileCompletion(true, p);
+          else profileGate = true;
+        } else {
+          profileGate = false;
+          var el3 = $("profileModal");
+          if (el3 && !el3.hidden) {
+            var closeBtn = document.querySelector('#profileModal .modal__close');
+            if (closeBtn) closeBtn.style.display = "";
+            closeEl(el3);
+          }
         }
       })
-      .catch(function () { /* 프로필 함수가 없으면 그냥 통과 */ });
+      .catch(function (err) {
+        if (window.console && console.warn) console.warn("[ALL PO ONE] 프로필 확인 실패:", err);
+      });
   }
 
   /* ============================================================
@@ -1925,18 +2014,37 @@
   function mypageInfoMarkup(user) {
     var meta = (user && user.user_metadata) || {};
     var loginId = memberId(user);
-    /* 이메일 계정은 아이디가 없으므로 가입한 이메일을 보여 줍니다. */
-    var id = loginId || String((user && user.email) || "");
-    var name = String(meta.name || "");
+    var mail = String((user && user.email) || "");
+    /* 아이디 계정 → 아이디, 이메일 계정 → 이메일, 카카오 계정 → 안내 문구 */
+    var id = loginId || mail;
+    var idLabel = loginId ? "아이디" : (mail ? "이메일" : "로그인 계정");
+    var idHint = loginId
+      ? "아이디는 바꿀 수 없습니다."
+      : (mail
+          ? "가입한 이메일이 표시됩니다. 바꿀 수 없습니다."
+          : "카카오 계정으로 로그인했습니다. 이메일 제공에 동의하지 않아 이메일은 표시되지 않습니다.");
+    var name = metaName(meta);
     var phone = digits(meta.phone);
+    var pwBlock = hasEmailLogin(user)
+      ? '<div class="mypage__grid">' +
+        '<div class="field">' +
+        '<label for="mpPw">새 비밀번호 <span class="opt">선택</span></label>' +
+        '<input id="mpPw" type="password" autocomplete="new-password" maxlength="72" placeholder="바꿀 때만 입력" />' +
+        '<p class="field__err" data-err="mpPw" hidden></p>' +
+        "</div>" +
+        '<div class="field">' +
+        '<label for="mpPw2">새 비밀번호 확인</label>' +
+        '<input id="mpPw2" type="password" autocomplete="new-password" maxlength="72" placeholder="한 번 더 입력" />' +
+        '<p class="field__err" data-err="mpPw2" hidden></p>' +
+        "</div>" +
+        "</div>"
+      : '<p class="mypage__hint">카카오 계정은 비밀번호가 없습니다. 비밀번호는 카카오에서 관리합니다.</p>';
     return (
       '<form id="mypageForm" class="mypage__form" novalidate>' +
       '<div class="field">' +
-      '<label for="mpId">' + (loginId ? "아이디" : "이메일") + '</label>' +
-      '<input id="mpId" type="text" value="' + esc(id) + '" readonly aria-readonly="true" class="is-locked" />' +
-      '<p class="field__hint">' +
-      (loginId ? "아이디는 바꿀 수 없습니다." : "가입한 이메일이 표시됩니다. 바꿀 수 없습니다.") +
-      "</p>" +
+      '<label for="mpId">' + idLabel + '</label>' +
+      '<input id="mpId" type="text" value="' + esc(id || "카카오 로그인 계정") + '" readonly aria-readonly="true" class="is-locked" />' +
+      '<p class="field__hint">' + idHint + "</p>" +
       "</div>" +
       '<div class="field">' +
       '<label for="mpName">이름 <span class="req">*</span></label>' +
@@ -1952,18 +2060,7 @@
         : '<p class="field__hint">주문서 연락처로 자동 입력됩니다. 같은 번호로는 한 번만 가입할 수 있습니다.</p>') +
       '<p class="field__err" data-err="mpPhone" hidden></p>' +
       "</div>" +
-      '<div class="mypage__grid">' +
-      '<div class="field">' +
-      '<label for="mpPw">새 비밀번호 <span class="opt">선택</span></label>' +
-      '<input id="mpPw" type="password" autocomplete="new-password" maxlength="72" placeholder="바꿀 때만 입력" />' +
-      '<p class="field__err" data-err="mpPw" hidden></p>' +
-      "</div>" +
-      '<div class="field">' +
-      '<label for="mpPw2">새 비밀번호 확인</label>' +
-      '<input id="mpPw2" type="password" autocomplete="new-password" maxlength="72" placeholder="한 번 더 입력" />' +
-      '<p class="field__err" data-err="mpPw2" hidden></p>' +
-      "</div>" +
-      "</div>" +
+      pwBlock +
       '<p class="auth__error" id="mypageError" role="alert" hidden></p>' +
       '<button class="btn btn--gold btn--block" type="submit" id="mypageSave">저장</button>' +
       '<p class="mypage__hint">저장하면 주문서 이름·연락처에도 바로 반영됩니다.</p>' +
@@ -1995,8 +2092,8 @@
     var no = mpLookupMode === "no";
     return (
       '<div class="mypage">' +
-      '<p class="mypage__eyebrow">MY PAGE</p>' +
-      '<h2 class="mypage__title" id="mypageTitle">마이페이지</h2>' +
+      '<p class="mypage__eyebrow">LOGIN</p>' +
+      '<h2 class="mypage__title" id="mypageTitle">로그인</h2>' +
       '<p class="mypage__lede">로그인하시면 주문 내역 · 적립금 · 내 정보 수정을 한곳에서 관리할 수 있어요.</p>' +
       '<button class="btn btn--gold btn--block mypage__login" type="button" data-auth-open="login">로그인 / 회원가입</button>' +
       '<div class="mypage__sep"><span>비회원 주문 조회</span></div>' +
@@ -2038,7 +2135,7 @@
     if (!body) return;
     var user = currentUser();
     var head = $("mypagePageTitle");
-    if (head) head.textContent = user ? userLabel(user) + "님" : "마이페이지";
+    if (head) head.textContent = user ? userLabel(user) + "님" : "로그인";
 
     if (!user) {
       body.innerHTML = mypageGuestMarkup();
@@ -2113,10 +2210,7 @@
     startTicker();
     if (wasHidden) navOpen("mypage");
     else if (window.APONav) APONav.relabel("mypage", { tab: mypageTab });
-    if (!currentUser()) {
-      var input = $("mpLookupNo");
-      if (input) setTimeout(function () { try { input.focus(); } catch (e) {} }, 80);
-    }
+    /* 비로그인: 자동 포커스를 잡지 않습니다 (모바일 키보드가 저절로 올라오지 않게). */
   }
 
   function loadMypageOrders() {
@@ -2331,15 +2425,15 @@
     if (!s || !user) return;
 
     var meta = user.user_metadata || {};
-    var oldName = String(meta.name || "").trim();
+    var oldName = metaName(meta);
     var oldPhone = digits(meta.phone);
+    /* 번호가 이미 등록된 회원은 번호를 바꿀 수 없습니다 (readonly — 서버도 막습니다). */
+    var phoneLocked = !!oldPhone;
 
     var name = (($("mpName") || {}).value || "").trim();
     var phone = phoneLocked ? oldPhone : digits(($("mpPhone") || {}).value || "");
     var pw = ($("mpPw") || {}).value || "";
     var pw2 = ($("mpPw2") || {}).value || "";
-    /* 번호가 이미 등록된 회원은 번호를 바꿀 수 없습니다 (readonly — 서버도 막습니다). */
-    var phoneLocked = !!oldPhone;
 
     ["mpName", "mpPhone", "mpPw", "mpPw2"].forEach(function (k) { setMpFieldError(k, ""); });
     var box = $("mypageError");
@@ -2386,7 +2480,13 @@
           if ($("mpPhone")) $("mpPhone").focus();
           return null;
         }
-        return s.updateProfile({ name: name, phone: phoneLocked ? undefined : phone, password: pw }).then(function () {
+        /* 번호를 처음 등록하는 회원(카카오 등)은 saveMyProfile 로 프로필에 저장합니다. */
+        var saving = (!phoneLocked && phone && phoneChanged)
+          ? s.saveMyProfile(name, phone).then(function () {
+              return pw ? s.updateProfile({ password: pw }) : null;
+            })
+          : s.updateProfile({ name: name, password: pw });
+        return saving.then(function () {
           setMpBusy(false);
           renderAccount();
           if ($("mpPw")) $("mpPw").value = "";
@@ -2417,6 +2517,13 @@
   }
 
   /* ── 이벤트 연결 ──────────────────────────────────────── */
+  /* 요소가 없어도(null) 오류 없이 넘어가는 안전한 연결 */
+  function on(el, ev, fn) {
+    if (!el || !el.addEventListener) return false;
+    el.addEventListener(ev, fn);
+    return true;
+  }
+
   function setLookupMode(mode) {
     lookupMode = mode;
     var tabs = document.querySelectorAll("[data-lookup-mode]");
@@ -2534,7 +2641,7 @@
       }
       if (t.closest("[data-close-profile]")) {
         e.preventDefault();
-        closeEl($("profileModal"));
+        closeProfileCompletion();
         return;
       }
       if (t.closest("[data-profile-save]")) {
@@ -2627,12 +2734,14 @@
       }
     });
     $("authModal").addEventListener("submit", submitAuth);
-    $("profileModal").addEventListener("submit", function (e) {
+    /* 프로필 모달 내용은 열 때 그려지므로(profileBody) 안쪽 요소는 그때 존재합니다.
+       여기서 바로 잡으면 null 오류로 아래 연결이 전부 멈춥니다. */
+    on($("profileModal"), "submit", function (e) {
       e.preventDefault();
       submitProfileCompletion();
     });
-    $("profilePhone").addEventListener("keydown", function (e) {
-      if (e.key === "Enter") {
+    on($("profileModal"), "keydown", function (e) {
+      if (e.key === "Enter" && e.target && e.target.id === "profilePhone") {
         e.preventDefault();
         submitProfileCompletion();
       }
@@ -2667,6 +2776,7 @@
 
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape") return;
+      if ($("profileModal") && !$("profileModal").hidden) { closeProfileCompletion(); return; }
       if (!$("authModal").hidden) { authNext = ""; navClose("auth"); return; }
       if (!$("mypageModal").hidden) { navClose("mypage"); return; }
       if (!$("checkoutModal").hidden) { navClose("checkout"); return; }
@@ -2715,12 +2825,20 @@
   function boot() {
     var s = store();
     if (!s) { endAuthPending(); return; }
+
+    /* 화면 연결을 먼저 겁니다 — 아래 init() 보다 먼저 걸어야
+       OAuth 복귀 직후의 apo:auth 신호(프로필 확인 포함)를 놓치지 않습니다. */
+    try { wire(); } catch (e) {
+      if (window.console && console.warn) console.warn("[ALL PO ONE] 화면 연결 일부 실패:", e);
+    }
+    try { wireNav(); } catch (e) {
+      if (window.console && console.warn) console.warn("[ALL PO ONE] 뒤로가기 연결 실패:", e);
+    }
+
     s.init().then(function () {
       renderModeBanner();
       renderAccount();
       renderCart();
-      wire();
-      wireNav();
 
       /* 공유 링크(#mypage)로 바로 열기 */
       if (window.APONav && location.hash === "#mypage") {
@@ -2728,14 +2846,17 @@
         openMypage("orders");
       }
 
-      /* 이미 로그인된 세션이 있으면 헤더에 계정을 바로 표시 */
-      if (s.loadSession) {
-        s.loadSession().then(
-          function () { renderAccount(); endAuthPending(); },
-          function () { endAuthPending(); }
-        );
-      } else {
+      var afterSession = function () {
+        renderAccount();
         endAuthPending();
+        /* 카카오 로그인 복귀 등 — 이름·번호가 비었으면 즉시 입력을 강제합니다. */
+        checkProfileCompletion();
+      };
+
+      if (s.loadSession) {
+        s.loadSession().then(afterSession, afterSession);
+      } else {
+        afterSession();
       }
       /* 인증이 느리거나 막힌 경우에도 버튼은 보이게 (3초 안전장치) */
       setTimeout(endAuthPending, 3000);
