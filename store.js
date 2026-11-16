@@ -520,6 +520,55 @@
     return { ok: true, qty: next.length, seats: next };
   }
 
+  /* 번호판에서 [장바구니 담기] — 장바구니의 이 상품 번호를 지금 고른 번호로 '덮어쓰기'.
+     · 추가 합산이 아니라 지금 고른 그대로 맞춥니다(해제한 번호는 장바구니에서 빠짐).
+     · 하나도 안 골랐으면 장바구니에서 이 상품 줄을 뺍니다. */
+  function setOripaCartSeats(id, seats) {
+    var p = getProduct(id);
+    if (!p) return { ok: false, reason: "not_found", message: "상품을 찾을 수 없습니다." };
+    if (p.hidden) return { ok: false, reason: "hidden", message: "현재 판매 중이지 않은 상품입니다." };
+    if (p.soldOut) return { ok: false, reason: "soldout", message: "품절된 상품입니다." };
+
+    var list = syncCart();
+    var at = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) at = i;
+
+    var next = seatList(seats);
+    if (!next) {
+      if (at < 0) return { ok: false, reason: "empty", message: "번호를 먼저 선택해 주세요." };
+      list.splice(at, 1);
+      saveCart(list);
+      return { ok: true, qty: 0, removed: true, message: p.name + "을(를) 장바구니에서 뺐습니다." };
+    }
+    if (next.length > p.stock) {
+      return {
+        ok: false,
+        reason: "stock",
+        message: "남은 " + p.stock + unitOf(p) + "까지만 선택할 수 있습니다.",
+      };
+    }
+
+    var was = at >= 0 && list[at].seats ? list[at].seats : null;
+    if (at >= 0) {
+      list[at].seats = next;
+      list[at].qty = next.length;
+    } else {
+      list.push({ id: id, qty: next.length, seats: next });
+    }
+    saveCart(list);
+
+    var same = was && was.length === next.length && was.every(function (n, k) { return n === next[k]; });
+    return {
+      ok: true,
+      qty: next.length,
+      seats: next,
+      unchanged: !!same,
+      message: same
+        ? p.name + " " + next.length + unitOf(p) + "는 이미 장바구니에 있습니다."
+        : p.name + " " + next.length + unitOf(p) + "(" + seatText(next) + ")를 장바구니에 담았습니다.",
+    };
+  }
+
   function setQty(id, qty) {
     var p = getProduct(id);
     if (!p) return { ok: false, message: "상품을 찾을 수 없습니다." };
@@ -3021,6 +3070,7 @@
     addToCart: addToCart,
     setQty: setQty,
     setSeats: setSeats,
+    setOripaCartSeats: setOripaCartSeats,
     seatText: seatText,
     removeFromCart: removeFromCart,
     clearCart: clearCart,

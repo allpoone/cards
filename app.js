@@ -713,12 +713,15 @@
   }
 
   function buyMarkup(p, isOripa) {
+    /* 오리파는 번호판을 불러온 뒤에야 누를 수 있게 두고, 번호판이 채워지면 풀립니다.
+       (불러오기 전에 차례 되면 번호 없는 바로구매가 만들어지지 않게) */
+    var wait = isOripa ? " disabled" : "";
     return (
       '<div class="detail__buy">' +
       stepperMarkup(p, isOripa) +
       '<div class="detail__buy-actions">' +
-      '<button class="btn btn--ghost btn--buy" type="button" data-cart-add="' + esc(p.id) + '">장바구니 담기</button>' +
-      '<button class="btn btn--gold btn--buy' + (isOripa ? " seat__buy" : "") + '" type="button" data-buy-now="' + esc(p.id) + '">바로구매' +
+      '<button class="btn btn--ghost btn--buy" type="button" data-cart-add="' + esc(p.id) + '"' + wait + '>장바구니 담기</button>' +
+      '<button class="btn btn--gold btn--buy' + (isOripa ? " seat__buy" : "") + '" type="button" data-buy-now="' + esc(p.id) + '"' + wait + '>바로구매' +
       (isOripa ? "<span data-seat-buy-label>번호를 선택해 주세요</span>" : "") +
       "</button>" +
       "</div>" +
@@ -845,14 +848,28 @@
     return false;
   }
 
-  /* 전체 선택 대상: 지금 고를 수 있는 남은 번호 (팔림·입금대기·장바구니 번호 제외) */
+  /* 전체 선택 대상: 지금 고를 수 있는 모든 번호 (장바구니 번호 포함) */
   function seatAllTargets() {
     var out = [];
     for (var n = 1; n <= seat.total; n++) {
       if ((seat.status[n] || "available") !== "available") continue;
-      if (seat.inCart[n]) continue;
       out.push(n);
     }
+    return out;
+  }
+
+  /* 번호판을 열 때 처음부터 선택해 둘 번호 = 장바구니에 담아둔 이 상품의 번호 중
+     지금도 고를 수 있는(available) 번호. 팔렸거나 입금대기 중이면 뺍니다. */
+  function seatInitialPicks() {
+    var out = [];
+    for (var k in seat.inCart) {
+      if (!seat.inCart[k]) continue;
+      var n = Math.floor(Number(k) || 0);
+      if (n <= 0 || n > seat.total) continue;
+      if ((seat.status[n] || "available") !== "available") continue;
+      out.push(n);
+    }
+    out.sort(function (a, b) { return a - b; });
     return out;
   }
 
@@ -961,22 +978,15 @@
       ? picked.slice(0, 12).map(function (n) { return "<b>#" + n + "</b>"; }).join("") +
         (picked.length > 12 ? '<span class="seat__sum-more">외 ' + (picked.length - 12) + "구</span>" : "")
       : '<span class="seat__sum-none">번호를 선택해 주세요</span>';
-    var cart = [];
-    for (var k in seat.inCart) if (seat.inCart[k]) cart.push(Number(k));
-    cart.sort(function (a, b) { return a - b; });
-    var cartTxt = "";
-    if (cart.length) {
-      var head = cart.slice(0, 8).map(function (n) { return "#" + n; }).join(", ");
-      cartTxt =
-        '<span class="seat__sum-cart" title="장바구니에 담아둔 번호">🛒 장바구니 ' + head +
-        (cart.length > 8 ? " 외 " + (cart.length - 8) + "구" : "") + "</span>";
-    }
     box.innerHTML =
       '<span class="seat__sum-label">선택 번호</span>' +
       '<span class="seat__sum-nums">' + nums + "</span>" +
-      cartTxt +
       '<span class="seat__sum-total">' + picked.length + "구 · " + seatWon(picked.length * seat.price) + "</span>";
     box.hidden = false;
+
+    /* 장바구니에 이 상품이 담겨 있는지 — 담겨 있으면 0구여도 빼기로 눌러 줄 수 있게 둡니다. */
+    var inCart = false;
+    for (var ck in seat.inCart) if (seat.inCart[ck]) { inCart = true; break; }
 
     var counts = seatCounts();
     var meta = document.querySelector("[data-seat-meta]");
@@ -994,7 +1004,10 @@
     var buyBtn = document.querySelector("#modalBody [data-buy-now]");
     var cartBtn = document.querySelector("#modalBody [data-cart-add]");
     if (buyBtn) buyBtn.disabled = picked.length === 0;
-    if (cartBtn) cartBtn.disabled = picked.length === 0;
+    if (cartBtn) {
+      cartBtn.disabled = picked.length === 0 && !inCart;
+      cartBtn.textContent = picked.length ? "장바구니 담기" : "장바구니에서 빼기";
+    }
   }
 
   /* 번호판 데이터를 화면에 적용 (없으면 기존 수량 스테퍼로 대체) */
@@ -1011,8 +1024,14 @@
       if (stepper) stepper.hidden = false;
       if (buyBtn) {
         buyBtn.classList.remove("seat__buy");
+        buyBtn.disabled = false;
         var sub = buyBtn.querySelector("[data-seat-buy-label]");
         if (sub) sub.parentNode.removeChild(sub);
+      }
+      var cartNoSeat = document.querySelector("#modalBody [data-cart-add]");
+      if (cartNoSeat) {
+        cartNoSeat.disabled = false;
+        cartNoSeat.textContent = "장바구니 담기";
       }
       return;
     }
@@ -1030,7 +1049,8 @@
     (board.seats || []).forEach(function (x) {
       if (x && x.n) seat.status[x.n] = x.s || "available";
     });
-
+    /* 장바구니에 담아둔 번호는 열자마자 선택된 상태로 — 상세를 다시 열어도 금액이 바로 뜨게. */
+    seat.picked = seatInitialPicks();
     if (loading) loading.hidden = true;
     if (stepper) stepper.hidden = true;
     var note = document.querySelector("[data-seat-buy-note]");
@@ -1245,19 +1265,8 @@
           seat.picked = [];
           toast("선택을 모두 해제했습니다.", "ok");
         } else {
-          var allCounts = seatCounts();
-          var inCartN = 0;
-          for (var ck in seat.inCart) if (seat.inCart[ck]) inCartN++;
-          var room = Math.max(0, allCounts.avail - inCartN);
-          var limited = targets.length > room;
-          if (limited) targets = targets.slice(0, room);
           seat.picked = targets.slice();
-          toast(
-            limited
-              ? targets.length + "구만 선택했습니다. 나머지는 지금 고를 수 없는 번호예요."
-              : targets.length + "구를 모두 선택했습니다.",
-            limited ? "warn" : "ok"
-          );
+          toast(targets.length + "구를 모두 선택했습니다.", "ok");
         }
         paintSeatGrid();
         paintSeatSum();
@@ -1270,11 +1279,6 @@
         if (seatBtn.disabled) return;
         var num = Number(seatBtn.getAttribute("data-seat-num"));
         var at = seat.picked.indexOf(num);
-        /* 이미 장바구니에 담아둔 번호는 중복으로 고르지 않고 안내만 합니다. */
-        if (at < 0 && seatBtn.classList.contains("is-in-cart")) {
-          toast("이미 장바구니에 담긴 번호예요. 장바구니에서 빼거나 바로 결제할 수 있어요.", "ok");
-          return;
-        }
         if (at >= 0) {
           seat.picked.splice(at, 1);
         } else {
@@ -1287,8 +1291,10 @@
         }
         var on = seat.picked.indexOf(num) >= 0;
         seatBtn.classList.toggle("is-picked", on);
+        /* 장바구니에 있는 번호를 잠깐 해제한 상태는 청록(🛒) 표시로 남겨 둡니다. */
+        seatBtn.classList.toggle("is-in-cart", !on && seat.inCart[num] === true);
         seatBtn.setAttribute("aria-pressed", on ? "true" : "false");
-        seatBtn.setAttribute("aria-label", num + "번" + (on ? " 선택됨" : ""));
+        seatBtn.setAttribute("aria-label", num + "번" + (on ? " 선택됨" : seat.inCart[num] ? " 장바구니에 담김" : ""));
         paintSeatSum();
         paintSeatPager();
         return;
@@ -1329,12 +1335,20 @@
         var qtyEl = $("detailQty");
         var q = qtyEl ? Math.max(1, Number(qtyEl.value) || 1) : 1;
         var picks = pickedSeats(pid);
-        if (picks && !picks.length) {
-          toast("번호를 먼저 선택해 주세요.", "warn");
+        /* 오리파 — 장바구니의 이 상품 번호를 지금 고른 번호 그대로 맞춥니다.
+           (고른 걸 더하지 않고 덮어쓰기 · 다 해제했으면 장바구니에서 빼기) */
+        if (picks) {
+          var sync = window.APOStore && APOStore.setOripaCartSeats
+            ? APOStore.setOripaCartSeats(pid, picks)
+            : { ok: false, message: "장바구니를 사용할 수 없습니다." };
+          toast(sync.message, sync.ok ? "ok" : "warn");
+          if (!sync.ok) return;
+          closeModal();
+          if (window.APOShop) APOShop.openCart();
           return;
         }
         var res = window.APOStore
-          ? (picks ? APOStore.addToCart(pid, picks.length, picks) : APOStore.addToCart(pid, q))
+          ? APOStore.addToCart(pid, q)
           : { ok: false, message: "장바구니를 사용할 수 없습니다." };
         toast(res.message, res.ok && !res.clamped ? "ok" : "warn");
         if (res.ok) {
